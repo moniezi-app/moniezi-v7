@@ -76,7 +76,7 @@ import {
   ToggleRight,
   Copy
 } from 'lucide-react';
-import { Page, Transaction, Invoice, Estimate, UserSettings, Notification, FilterPeriod, RecurrenceFrequency, FilingStatus, TaxPayment, TaxEstimationMethod, InvoiceItem, EstimateItem, CustomCategories, Receipt as ReceiptType } from './types';
+import { Page, Transaction, Invoice, Estimate, Client, ClientStatus, UserSettings, Notification, FilterPeriod, RecurrenceFrequency, FilingStatus, TaxPayment, TaxEstimationMethod, InvoiceItem, EstimateItem, CustomCategories, Receipt as ReceiptType } from './types';
 import { CATS_IN, CATS_OUT, CATS_BILLING, DEFAULT_PAY_PREFS, DB_KEY, TAX_CONSTANTS, TAX_PLANNER_2026, getFreshDemoData } from './constants';
 import InsightsDashboard from './InsightsDashboard';
 import { getInsightCount } from './services/insightsEngine';
@@ -87,6 +87,11 @@ const generateId = (prefix: string) => {
   }
   return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 };
+
+
+
+// --- Clients Helpers ---
+const normalize = (s: string) => (s || '').trim().toLowerCase();
 
 // --- Utility: Image Compressor ---
 const compressReceiptImage = (file: File): Promise<string> => {
@@ -568,6 +573,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [settings, setSettings] = useState<UserSettings>({
     businessName: "My Business",
     ownerName: "Owner",
@@ -584,6 +590,12 @@ export default function App() {
   const [customCategories, setCustomCategories] = useState<CustomCategories>({ income: [], expense: [], billing: [] });
   const [taxPayments, setTaxPayments] = useState<TaxPayment[]>([]);
   const [receipts, setReceipts] = useState<ReceiptType[]>([]);
+
+  // Clients / Leads (Lightweight CRM)
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientFilter, setClientFilter] = useState<'all' | ClientStatus>('all');
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<Partial<Client>>({ status: 'lead' });
 
   // UI State
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -820,6 +832,79 @@ export default function App() {
 
   const removeToast = (id: string) => setNotifications(prev => prev.filter(n => n.id !== id));
 
+
+  const findMatchingClientId = useCallback((data: Partial<Invoice> & Partial<Estimate>) => {
+    const email = normalize((data as any).clientEmail || '');
+    const name = normalize((data as any).client || '');
+    const company = normalize((data as any).clientCompany || '');
+
+    if (data.clientId && clients.some(c => c.id === data.clientId)) return data.clientId;
+
+    if (email) {
+      const byEmail = clients.find(c => normalize(c.email || '') == email);
+      if (byEmail) return byEmail.id;
+    }
+    if (name) {
+      const byName = clients.find(c => normalize(c.name) === name && normalize(c.company || '') === company);
+      if (byName) return byName.id;
+      const byNameOnly = clients.find(c => normalize(c.name) == name);
+      if (byNameOnly) return byNameOnly.id;
+    }
+    return undefined;
+  }, [clients]);
+
+  const upsertClientFromDoc = useCallback((data: Partial<Invoice> & Partial<Estimate>, statusHint: ClientStatus) => {
+    const clientName = (data as any).client?.trim();
+    if (!clientName) return undefined;
+
+    const now = new Date().toISOString();
+    const existingId = findMatchingClientId(data);
+
+    if (existingId) {
+      setClients(prev => prev.map(c => {
+        if (c.id !== existingId) return c;
+        return {
+          ...c,
+          name: clientName,
+          company: (data as any).clientCompany || c.company,
+          email: (data as any).clientEmail || c.email,
+          address: (data as any).clientAddress || c.address,
+          status: c.status === 'inactive' ? c.status : statusHint,
+          updatedAt: now,
+        };
+      }));
+      return existingId;
+    }
+
+    const newClient: Client = {
+      id: generateId('cli'),
+      name: clientName,
+      company: (data as any).clientCompany || '',
+      email: (data as any).clientEmail || '',
+      phone: '',
+      address: (data as any).clientAddress || '',
+      notes: '',
+      status: statusHint,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setClients(prev => [newClient, ...prev]);
+    return newClient.id;
+  }, [findMatchingClientId]);
+
+  const fillDocFromClient = useCallback((clientId: string) => {
+    const c = clients.find(x => x.id === clientId);
+    if (!c) return;
+    setActiveItem(prev => ({
+      ...prev,
+      clientId: c.id,
+      client: c.name,
+      clientCompany: c.company || '',
+      clientEmail: c.email || '',
+      clientAddress: c.address || '',
+    }));
+  }, [clients]);
+
   useEffect(() => {
     const saved = localStorage.getItem(DB_KEY);
     if (saved) {
@@ -828,6 +913,7 @@ export default function App() {
         setTransactions(parsed.transactions || []);
         setInvoices(parsed.invoices || []);
         setEstimates(parsed.estimates || []);
+        setClients(parsed.clients || []);
         const defaultMethod: TaxEstimationMethod = parsed.settings?.taxEstimationMethod || 'custom'; 
         setSettings({
             businessName: "My Business",
@@ -862,9 +948,9 @@ export default function App() {
 
   useEffect(() => {
     if (dataLoaded) {
-      localStorage.setItem(DB_KEY, JSON.stringify({ transactions, invoices, estimates, settings, taxPayments, customCategories, receipts }));
+      localStorage.setItem(DB_KEY, JSON.stringify({ transactions, invoices, estimates, clients, settings, taxPayments, customCategories, receipts }));
     }
-  }, [transactions, invoices, estimates, settings, taxPayments, customCategories, receipts, dataLoaded]);
+  }, [transactions, invoices, estimates, clients, settings, taxPayments, customCategories, receipts, dataLoaded]);
 
   useEffect(() => {
     if (!dataLoaded) return;
@@ -1262,7 +1348,7 @@ export default function App() {
   
   const performReset = () => {
     try {
-        localStorage.setItem(DB_KEY, JSON.stringify({ transactions: [], invoices: [], estimates: [], settings: { businessName: "My Business", ownerName: "Owner", payPrefs: DEFAULT_PAY_PREFS, taxRate: 25, currencySymbol: '$' }, taxPayments: [], customCategories: { income: [], expense: [], billing: [] }, receipts: [] }));
+        localStorage.setItem(DB_KEY, JSON.stringify({ transactions: [], invoices: [], estimates: [], clients: [], settings: { businessName: "My Business", ownerName: "Owner", payPrefs: DEFAULT_PAY_PREFS, taxRate: 25, currencySymbol: '$' }, taxPayments: [], customCategories: { income: [], expense: [], billing: [] }, receipts: [] }));
     } catch (e) { console.error("Failed to wipe", e); }
     setTransactions([]); setInvoices([]); setEstimates([]); setTaxPayments([]); setReceipts([]); setCustomCategories({ income: [], expense: [], billing: [] }); setSettings({ businessName: "My Business", ownerName: "Owner", payPrefs: DEFAULT_PAY_PREFS, taxRate: 25, stateTaxRate: 0, taxEstimationMethod: 'preset', filingStatus: 'single', currencySymbol: '$' });
      setSeedSuccess(false); setShowResetConfirm(false); showToast("All data has been wiped.", "success"); setCurrentPage(Page.Dashboard);
@@ -1332,6 +1418,9 @@ export default function App() {
 
   const saveInvoice = (data: Partial<Invoice>) => {
     if (!data.client?.trim()) return showToast("Please enter a client name", "error");
+    // Auto-create/update client record and tie document to clientId
+    const clientId = upsertClientFromDoc(data as any, 'client');
+    data = { ...data, clientId };
     let totalAmount = 0, subtotal = 0;
     if (data.items && data.items.length > 0) {
         subtotal = data.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
@@ -1356,7 +1445,7 @@ export default function App() {
       showToast("Invoice updated", "success");
     } else {
       const newInv: Invoice = {
-        id: generateId('inv'), client: data.client, clientAddress: data.clientAddress, clientEmail: data.clientEmail, clientCompany: data.clientCompany,
+        id: generateId('inv'), clientId: data.clientId, client: data.client, clientAddress: data.clientAddress, clientEmail: data.clientEmail, clientCompany: data.clientCompany,
         amount: totalAmount, category: data.category || "Service", description, date: data.date || new Date().toISOString().split('T')[0],
         due: data.due || new Date().toISOString().split('T')[0], status: 'unpaid', notes: data.notes || settings.defaultInvoiceNotes,
         terms: data.terms || settings.defaultInvoiceTerms, payMethod: data.payMethod, recurrence: data.recurrence, items: data.items,
@@ -1370,6 +1459,9 @@ export default function App() {
   // Estimates (Quotes)
   const saveEstimate = (data: Partial<Estimate>) => {
     if (!data.client?.trim()) return showToast('Please enter a client name', 'error');
+    const statusHint: ClientStatus = (data.status === 'accepted') ? 'client' : 'lead';
+    const clientId = upsertClientFromDoc(data as any, statusHint);
+    data = { ...data, clientId };
     let totalAmount = 0;
     let subtotal = 0;
     if (data.items && data.items.length > 0) {
@@ -1389,6 +1481,7 @@ export default function App() {
     } else {
       const newEst: Estimate = {
         id: generateId('est'),
+        clientId: data.clientId,
         client: data.client!,
         clientCompany: data.clientCompany,
         clientAddress: data.clientAddress,
@@ -1859,6 +1952,7 @@ export default function App() {
             transactions,
             invoices,
             estimates,
+            clients,
             settings,
             taxPayments,
             customCategories,
@@ -1916,6 +2010,7 @@ export default function App() {
         const tx = Array.isArray(newData.transactions) ? newData.transactions : [];
         const inv = Array.isArray(newData.invoices) ? newData.invoices : [];
         const est = Array.isArray(newData.estimates) ? newData.estimates : [];
+        const cls = Array.isArray(newData.clients) ? newData.clients : [];
         const tax = Array.isArray(newData.taxPayments) ? newData.taxPayments : [];
         const rec = Array.isArray(newData.receipts) ? newData.receipts : [];
         const set = { ...settings, ...(newData.settings || {}) };
@@ -1930,6 +2025,7 @@ export default function App() {
         setTransactions(tx);
         setInvoices(inv);
         setEstimates(est);
+        setClients(cls);
         setTaxPayments(tax);
         setReceipts(rec);
         setSettings(set);
@@ -4023,6 +4119,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
             <button onClick={() => setCurrentPage(Page.Invoices)} className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl transition-all active:scale-95 ${(currentPage === Page.Invoices || currentPage === Page.Invoice) ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'}`}><FileText size={22} strokeWidth={(currentPage === Page.Invoices || currentPage === Page.Invoice) ? 2.5 : 2} /><span className="text-xs font-bold mt-1">Invoice</span></button>
             <div className="mx-2 -mt-8"><button onClick={() => handleOpenFAB((currentPage === Page.Invoices || currentPage === Page.Invoice) ? 'billing' : 'income')} className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-blue-600/40 transition-transform active:scale-95 border-[4px] border-slatebg dark:border-slate-950"><Plus size={32} strokeWidth={3} /></button></div>
             <button onClick={() => setCurrentPage(Page.AllTransactions)} className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl transition-all active:scale-95 ${(currentPage === Page.AllTransactions || currentPage === Page.Ledger) ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'}`}><History size={22} strokeWidth={(currentPage === Page.AllTransactions || currentPage === Page.Ledger) ? 2.5 : 2} /><span className="text-xs font-bold mt-1">Ledger</span></button>
+            <button onClick={() => setCurrentPage(Page.Clients)} className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl transition-all active:scale-95 ${currentPage === Page.Clients ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'}`}><Users size={22} strokeWidth={currentPage === Page.Clients ? 2.5 : 2} /><span className="text-xs font-bold mt-1">Clients</span></button>
             <button onClick={() => setCurrentPage(Page.Reports)} className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl transition-all active:scale-95 ${currentPage === Page.Reports ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'}`}><BarChart3 size={22} strokeWidth={currentPage === Page.Reports ? 2.5 : 2} /><span className="text-xs font-bold mt-1">Reports</span></button>
         </div>
       </div>
@@ -4049,7 +4146,9 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
          title={
             drawerMode === 'tax_payments' ? 'Tax Payments' :
             drawerMode === 'create_cat' ? 'New Category' :
-            drawerMode === 'add' ? (activeTab === 'billing' ? (billingDocType === 'estimate' ? 'New Estimate' : 'New Invoice') : activeTab === 'income' ? 'Add Income' : 'Add Expense') :             drawerMode === 'edit_tx' ? 'Edit Transaction' :             (billingDocType === 'estimate' ? 'Edit Estimate' : 'Edit Invoice')
+            drawerMode === 'add' ? (activeTab === 'billing' ? (billingDocType === 'estimate' ? 'New Estimate' : 'New Invoice') : activeTab === 'income' ? 'Add Income' : 'Add Expense') : 
+            drawerMode === 'edit_tx' ? 'Edit Transaction' : 
+            'Edit Invoice'
          }
       >
          {drawerMode === 'tax_payments' ? (
@@ -4068,7 +4167,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
          ) : drawerMode === 'create_cat' ? (
              <div className="space-y-6">
                  <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-lg border border-slate-100 dark:border-slate-800">
-                     <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-4 uppercase tracking-wider">Create {activeTab === 'billing' ? (billingDocType === 'estimate' ? 'Estimate' : 'Invoice') : activeTab === 'income' ? 'Income' : 'Expense'} Category</h4>
+                     <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-4 uppercase tracking-wider">Create {activeTab === 'billing' ? 'Invoice' : activeTab === 'income' ? 'Income' : 'Expense'} Category</h4>
                      <div className="mb-6"><label className="text-xs font-bold text-slate-500 dark:text-slate-300 mb-2 block pl-1 uppercase tracking-wider">Category Name</label><input type="text" autoFocus value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-4 font-bold text-lg outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-700" placeholder="e.g. Project Supplies" /><p className="text-xs text-slate-400 mt-2 pl-1">This will be available for future {activeTab} entries.</p></div>
                      <div className="flex gap-3"><button onClick={() => setDrawerMode(previousDrawerMode.current)} className="flex-1 py-4 font-bold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button><button onClick={saveNewCategory} className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-500/20 uppercase tracking-widest transition-all active:scale-95">Save Category</button></div>
                  </div>
@@ -4108,6 +4207,13 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                       <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border border-slate-100 dark:border-slate-800">
                           <h4 className="text-xs font-bold text-slate-500 dark:text-slate-300 uppercase tracking-wider mb-3">Client Details</h4>
                           <div className="space-y-3">
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-500 dark:text-slate-300 mb-1 block pl-1 uppercase tracking-wider">Select Client</label>
+                                <select value={(activeItem as any).clientId || ''} onChange={e => { const id = e.target.value; setActiveItem(p => ({ ...p, clientId: id || undefined })); if (id) fillDocFromClient(id); }} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-3 py-3 font-bold text-sm outline-none focus:ring-1 focus:ring-blue-500">
+                                  <option value="">New / Not selected</option>
+                                  {clients.map(c => (<option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''}{c.status === 'lead' ? ' (Lead)' : ''}</option>))}
+                                </select>
+                              </div>
                               <input type="text" value={activeItem.client || ''} onChange={e => setActiveItem(prev => ({ ...prev, client: e.target.value }))} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-3 py-3 font-bold text-base outline-none focus:ring-1 focus:ring-blue-500" placeholder="Client Name (Required)" />
                               <input type="text" value={activeItem.clientCompany || ''} onChange={e => setActiveItem(prev => ({ ...prev, clientCompany: e.target.value }))} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Company Name (Optional)" />
                               <input type="email" value={activeItem.clientEmail || ''} onChange={e => setActiveItem(prev => ({ ...prev, clientEmail: e.target.value }))} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Client Email (Optional)" />
@@ -4169,7 +4275,98 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
          )}
       </Drawer>
       
-      {/* Template Suggestion Modal */}
+      
+
+      {/* Client Modal */}
+      {isClientModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-lg font-extrabold text-slate-900 dark:text-white">{editingClient.id ? 'Edit Client' : 'New Client'}</div>
+                <div className="text-xs text-slate-500">Leads and customers are tied to invoices/estimates.</div>
+              </div>
+              <button onClick={() => { setIsClientModalOpen(false); setEditingClient({ status: 'lead' }); }} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input value={editingClient.name || ''} onChange={e => setEditingClient(p => ({...p, name: e.target.value}))} placeholder="Client name" className="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold" />
+                <select value={(editingClient.status as any) || 'lead'} onChange={e => setEditingClient(p => ({...p, status: e.target.value as any}))} className="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold">
+                  <option value="lead">Lead</option>
+                  <option value="client">Client</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              <input value={editingClient.company || ''} onChange={e => setEditingClient(p => ({...p, company: e.target.value}))} placeholder="Company (optional)" className="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input value={editingClient.email || ''} onChange={e => setEditingClient(p => ({...p, email: e.target.value}))} placeholder="Email (optional)" className="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold" />
+                <input value={editingClient.phone || ''} onChange={e => setEditingClient(p => ({...p, phone: e.target.value}))} placeholder="Phone (optional)" className="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold" />
+              </div>
+              <input value={editingClient.address || ''} onChange={e => setEditingClient(p => ({...p, address: e.target.value}))} placeholder="Address (optional)" className="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold" />
+              <textarea value={editingClient.notes || ''} onChange={e => setEditingClient(p => ({...p, notes: e.target.value}))} placeholder="Notes (optional)" className="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm min-h-[80px]" />
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              {editingClient.id && (
+                <button
+                  onClick={() => {
+                    if (!confirm('Delete this client?')) return;
+                    setClients(prev => prev.filter(c => c.id !== editingClient.id));
+                    setIsClientModalOpen(false);
+                    setEditingClient({ status: 'lead' });
+                    showToast('Client deleted', 'info');
+                  }}
+                  className="px-4 py-3 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold flex items-center gap-2">
+                  <Trash2 size={18}/> Delete
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  const name = (editingClient.name || '').trim();
+                  if (!name) return showToast('Client name is required', 'error');
+                  const now = new Date().toISOString();
+                  if (editingClient.id) {
+                    setClients(prev => prev.map(c => c.id === editingClient.id ? ({
+                      ...c,
+                      name,
+                      company: editingClient.company || '',
+                      email: editingClient.email || '',
+                      phone: editingClient.phone || '',
+                      address: editingClient.address || '',
+                      notes: editingClient.notes || '',
+                      status: (editingClient.status as any) || 'lead',
+                      updatedAt: now,
+                    }) : c));
+                    showToast('Client updated', 'success');
+                  } else {
+                    const newClient: Client = {
+                      id: generateId('cli'),
+                      name,
+                      company: editingClient.company || '',
+                      email: editingClient.email || '',
+                      phone: editingClient.phone || '',
+                      address: editingClient.address || '',
+                      notes: editingClient.notes || '',
+                      status: (editingClient.status as any) || 'lead',
+                      createdAt: now,
+                      updatedAt: now,
+                    };
+                    setClients(prev => [newClient, ...prev]);
+                    showToast('Client created', 'success');
+                  }
+                  setIsClientModalOpen(false);
+                  setEditingClient({ status: 'lead' });
+                }}
+                className="flex-1 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-500/20">
+                Save Client
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+{/* Template Suggestion Modal */}
       {showTemplateSuggestion && templateSuggestionData && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-xl p-6 shadow-2xl border border-blue-500/20">
