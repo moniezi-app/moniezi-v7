@@ -1340,8 +1340,153 @@ export default function App() {
 
   const handleSeedDemoData = () => {
     const demo = getFreshDemoData();
-    setTransactions([...demo.transactions] as Transaction[]); setInvoices([...demo.invoices] as Invoice[]); setEstimates([]); setSettings({...demo.settings}); setTaxPayments([...(demo.taxPayments || [])] as TaxPayment[]);
-    setSeedSuccess(true); showToast("Demo data loaded successfully!", "success"); setCurrentPage(Page.Dashboard); setTimeout(() => setSeedSuccess(false), 2000);
+
+    // --- Seed realistic demo Clients + Estimates so you can see the full workflow ---
+    const today = new Date();
+    const iso = (d: Date) => d.toISOString().split('T')[0];
+    const addDays = (n: number) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + n);
+      return d;
+    };
+
+    // Clients/Leads
+    const c1: Client = { id: generateId('cli'), name: 'Jimmy Wilson', company: 'Wilson Home Services', email: 'jimmy@wilsonhomeservices.com', phone: '(555) 010-1200', address: '12 Oak St, Springfield, USA', notes: 'Repeat customer. Prefers morning appointments.', status: 'client', createdAt: iso(addDays(-40)), updatedAt: iso(addDays(-2)) };
+    const c2: Client = { id: generateId('cli'), name: 'Kenny Barria', company: 'Barria Fitness Co.', email: 'kenny@barriafitness.co', phone: '(555) 010-2300', address: '88 Market Ave, Springfield, USA', notes: 'Interested in monthly plan. Asked for a deposit option.', status: 'lead', createdAt: iso(addDays(-18)), updatedAt: iso(addDays(-5)) };
+    const c3: Client = { id: generateId('cli'), name: 'Sophia Stanley', company: 'Stanley Creative Studio', email: 'sophia@stanleycreative.studio', phone: '(555) 010-3400', address: '221 Pine Rd, Springfield, USA', notes: 'Waiting on decision. Follow up next week.', status: 'lead', createdAt: iso(addDays(-9)), updatedAt: iso(addDays(-1)) };
+    const c4: Client = { id: generateId('cli'), name: 'Rich Richards', company: 'Richards Realty Group', email: 'rich@richardsrealty.group', phone: '(555) 010-4500', address: '5 Central Blvd, Springfield, USA', notes: 'Declined due to budget. Possible later in the year.', status: 'inactive', createdAt: iso(addDays(-90)), updatedAt: iso(addDays(-30)) };
+
+    const demoClients: Client[] = [c1, c2, c3, c4];
+
+    // Estimates (Quotes)
+    const e1: Estimate = {
+      id: generateId('est'),
+      number: 'EST-0007',
+      clientId: c1.id,
+      client: c1.name,
+      clientCompany: c1.company,
+      clientEmail: c1.email,
+      clientAddress: c1.address,
+      category: 'Services',
+      description: 'Home maintenance package (quarterly) — labor + materials',
+      date: iso(addDays(-6)),
+      validUntil: iso(addDays(14)),
+      status: 'accepted',
+      items: [
+        { id: generateId('it'), description: 'Quarterly maintenance visit', quantity: 1, rate: 350 },
+        { id: generateId('it'), description: 'Materials allowance', quantity: 1, rate: 85 },
+      ],
+      subtotal: 435,
+      discount: 25,
+      taxRate: 6,
+      shipping: 0,
+      poNumber: 'PO-1042',
+      terms: 'Payment due within 14 days of invoice date. Thank you!',
+      notes: 'Includes 1 follow-up visit within 30 days if needed.'
+    };
+
+    const e2: Estimate = {
+      id: generateId('est'),
+      number: 'EST-0008',
+      clientId: c2.id,
+      client: c2.name,
+      clientCompany: c2.company,
+      clientEmail: c2.email,
+      clientAddress: c2.address,
+      category: 'Consulting',
+      description: 'Business process setup + monthly optimization',
+      date: iso(addDays(-3)),
+      validUntil: iso(addDays(10)),
+      status: 'sent',
+      items: [
+        { id: generateId('it'), description: 'Setup & onboarding (one-time)', quantity: 1, rate: 500 },
+        { id: generateId('it'), description: 'Monthly optimization (retainer)', quantity: 1, rate: 250 },
+      ],
+      subtotal: 750,
+      discount: 0,
+      taxRate: 0,
+      shipping: 0,
+      terms: 'Optional: 30% deposit to lock the start date.',
+      notes: 'If accepted, we can begin next week.'
+    };
+
+    const e3: Estimate = {
+      id: generateId('est'),
+      number: 'EST-0009',
+      clientId: c3.id,
+      client: c3.name,
+      clientCompany: c3.company,
+      clientEmail: c3.email,
+      clientAddress: c3.address,
+      category: 'Design',
+      description: 'Brand kit + social media templates (starter bundle)',
+      date: iso(addDays(-1)),
+      validUntil: iso(addDays(21)),
+      status: 'draft',
+      items: [
+        { id: generateId('it'), description: 'Brand kit (logo + colors + fonts)', quantity: 1, rate: 650 },
+        { id: generateId('it'), description: 'Social templates pack', quantity: 1, rate: 220 },
+      ],
+      subtotal: 870,
+      discount: 70,
+      taxRate: 0,
+      shipping: 0,
+      notes: 'Draft ready — update scope if client requests extra variations.'
+    };
+
+    const e4: Estimate = {
+      id: generateId('est'),
+      number: 'EST-0010',
+      clientId: c4.id,
+      client: c4.name,
+      clientCompany: c4.company,
+      clientEmail: c4.email,
+      clientAddress: c4.address,
+      category: 'Services',
+      description: 'Property photography + listing package',
+      date: iso(addDays(-25)),
+      validUntil: iso(addDays(-5)),
+      status: 'declined',
+      items: [
+        { id: generateId('it'), description: 'On-site photography', quantity: 1, rate: 300 },
+        { id: generateId('it'), description: 'Listing optimization', quantity: 1, rate: 150 },
+      ],
+      subtotal: 450,
+      discount: 0,
+      taxRate: 0,
+      shipping: 0,
+      notes: 'Client declined this round. Consider follow-up later.'
+    };
+
+    // Calculate totals using the same method used elsewhere (fallback if missing)
+    const calcTotal = (doc: any) => {
+      const subtotal = Number(doc.subtotal ?? 0);
+      const discount = Number(doc.discount ?? 0);
+      const shipping = Number(doc.shipping ?? 0);
+      const taxRate = Number(doc.taxRate ?? 0);
+      const taxable = Math.max(0, subtotal - discount);
+      const tax = taxable * (taxRate / 100);
+      return Math.round((taxable + tax + shipping) * 100) / 100;
+    };
+
+    const demoEstimates: Estimate[] = [
+      { ...e1, amount: calcTotal(e1) },
+      { ...e2, amount: calcTotal(e2) },
+      { ...e3, amount: calcTotal(e3) },
+      { ...e4, amount: calcTotal(e4) },
+    ];
+
+    setTransactions([...(demo.transactions as Transaction[])]);
+    setInvoices([...(demo.invoices as Invoice[])]);
+    setClients(demoClients);
+    setEstimates(demoEstimates);
+    setSettings({ ...(demo.settings as any) });
+    setTaxPayments([...(demo.taxPayments || [])] as TaxPayment[]);
+
+    setSeedSuccess(true);
+    showToast('Demo data loaded successfully!', 'success');
+    setCurrentPage(Page.Dashboard);
+    setTimeout(() => setSeedSuccess(false), 2000);
   };
 
   const handleClearData = () => setShowResetConfirm(true);
