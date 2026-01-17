@@ -1538,6 +1538,68 @@ export default function App() {
     showToast('Estimate duplicated - review and save', 'success');
   };
 
+  // Convert Estimate -> Invoice (Wave-style)
+  const convertEstimateToInvoice = (est: Estimate) => {
+    if (!est?.id) return;
+    if (est.status === 'void') return showToast('Cannot convert a void estimate', 'error');
+    if (est.status === 'declined') {
+      const ok = confirm('This estimate is Declined. Convert to an invoice anyway?');
+      if (!ok) return;
+    }
+
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    // Default due date: today + 14 days (if user didn't set something else later)
+    const due = new Date(today);
+    due.setDate(due.getDate() + 14);
+    const dueStr = due.toISOString().split('T')[0];
+
+    // Build invoice from estimate
+    const newInv: Invoice = {
+      id: generateId('inv'),
+      clientId: est.clientId,
+      client: est.client,
+      clientCompany: est.clientCompany,
+      clientAddress: est.clientAddress,
+      clientEmail: est.clientEmail,
+      amount: est.amount,
+      category: est.category || 'Service',
+      description: est.description || (est.items && est.items[0]?.description) || 'Services Rendered',
+      date: todayStr,
+      due: dueStr,
+      status: 'unpaid',
+      notes: (est.notes ? `${est.notes}\n\n` : '') + `Converted from estimate ${est.number || est.id}`,
+      terms: est.terms || settings.defaultInvoiceTerms,
+      items: (est.items || []).map(it => ({ ...it, id: generateId('item') })),
+      subtotal: est.subtotal,
+      discount: est.discount,
+      shipping: est.shipping,
+      taxRate: est.taxRate,
+      poNumber: est.poNumber,
+    };
+
+    // 1) Add invoice
+    setInvoices(prev => [newInv, ...prev]);
+
+    // 2) Mark estimate as accepted (so it reflects a closed deal)
+    setEstimates(prev => prev.map(e => e.id === est.id ? ({ ...e, status: 'accepted' } as Estimate) : e));
+
+    // 3) Ensure client is promoted to "client" status
+    if (newInv.client?.trim()) {
+      upsertClientFromDoc(newInv as any, 'client');
+    }
+
+    // 4) Jump user into the new invoice for review/edit
+    setBillingDocType('invoice');
+    setCurrentPage(Page.Invoices);
+    setActiveTab('billing');
+    setActiveItem(newInv);
+    setDrawerMode('edit_inv');
+    setIsDrawerOpen(true);
+    showToast('Estimate converted to invoice', 'success');
+  };
+
   const handlePrintEstimate = (est: Partial<Estimate>) => {
     const estimateToPrint = { ...est } as Estimate;
     if (!estimateToPrint.items || estimateToPrint.items.length === 0) {
@@ -2892,6 +2954,16 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                               </div>
                               <div className="flex gap-2">
                                 <button onClick={(e) => { e.stopPropagation(); handlePrintEstimate(est); }} title="Export PDF" className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-600 hover:text-white transition-all active:scale-95"><Download size={20} strokeWidth={1.5} /></button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); convertEstimateToInvoice(est); }}
+                                  title="Convert to Invoice"
+                                  disabled={est.status === 'void'}
+                                  className={`p-2.5 rounded-lg transition-all active:scale-95 ${est.status === 'void'
+                                    ? 'bg-slate-50 dark:bg-slate-900 text-slate-300 cursor-not-allowed'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-600 hover:text-white'}`}
+                                >
+                                  <ArrowRight size={20} strokeWidth={1.5} />
+                                </button>
                                 <button onClick={(e) => { e.stopPropagation(); setBillingDocType('estimate'); setActiveItem(est); setDrawerMode('edit_inv'); setIsDrawerOpen(true); }} title="Edit Estimate" className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-900 hover:text-white dark:hover:bg-slate-700 transition-all active:scale-95"><Edit3 size={20} strokeWidth={1.5} /></button>
                                 <button onClick={(e) => { e.stopPropagation(); deleteEstimate(est); }} title="Delete Estimate" className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-red-600 hover:text-white transition-all active:scale-95"><Trash2 size={20} strokeWidth={1.5} /></button>
                               </div>
