@@ -4049,9 +4049,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
          title={
             drawerMode === 'tax_payments' ? 'Tax Payments' :
             drawerMode === 'create_cat' ? 'New Category' :
-            drawerMode === 'add' ? (activeTab === 'billing' ? 'New Invoice' : activeTab === 'income' ? 'Add Income' : 'Add Expense') : 
-            drawerMode === 'edit_tx' ? 'Edit Transaction' : 
-            'Edit Invoice'
+            drawerMode === 'add' ? (activeTab === 'billing' ? (billingDocType === 'estimate' ? 'New Estimate' : 'New Invoice') : activeTab === 'income' ? 'Add Income' : 'Add Expense') :             drawerMode === 'edit_tx' ? 'Edit Transaction' :             (billingDocType === 'estimate' ? 'Edit Estimate' : 'Edit Invoice')
          }
       >
          {drawerMode === 'tax_payments' ? (
@@ -4070,7 +4068,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
          ) : drawerMode === 'create_cat' ? (
              <div className="space-y-6">
                  <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-lg border border-slate-100 dark:border-slate-800">
-                     <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-4 uppercase tracking-wider">Create {activeTab === 'billing' ? 'Invoice' : activeTab === 'income' ? 'Income' : 'Expense'} Category</h4>
+                     <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-4 uppercase tracking-wider">Create {activeTab === 'billing' ? (billingDocType === 'estimate' ? 'Estimate' : 'Invoice') : activeTab === 'income' ? 'Income' : 'Expense'} Category</h4>
                      <div className="mb-6"><label className="text-xs font-bold text-slate-500 dark:text-slate-300 mb-2 block pl-1 uppercase tracking-wider">Category Name</label><input type="text" autoFocus value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-4 font-bold text-lg outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-700" placeholder="e.g. Project Supplies" /><p className="text-xs text-slate-400 mt-2 pl-1">This will be available for future {activeTab} entries.</p></div>
                      <div className="flex gap-3"><button onClick={() => setDrawerMode(previousDrawerMode.current)} className="flex-1 py-4 font-bold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button><button onClick={saveNewCategory} className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-500/20 uppercase tracking-widest transition-all active:scale-95">Save Category</button></div>
                  </div>
@@ -4081,7 +4079,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                     <div className="flex bg-slate-200 dark:bg-slate-900 p-1 rounded-lg mb-4">
                         <button onClick={() => { setActiveTab('income'); resetActiveItem('income'); setCategorySearch(''); }} className={`flex-1 py-3 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'income' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}>Income</button>
                         <button onClick={() => { setActiveTab('expense'); resetActiveItem('expense'); setCategorySearch(''); }} className={`flex-1 py-3 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'expense' ? 'bg-white dark:bg-slate-800 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}>Expense</button>
-                        <button onClick={() => { setActiveTab('billing'); resetActiveItem('billing'); setCategorySearch(''); }} className={`flex-1 py-3 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'billing' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}>Invoice</button>
+                        <button onClick={() => { setActiveTab('billing'); resetActiveItem('billing'); setCategorySearch(''); }} className={`flex-1 py-3 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'billing' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}>{billingDocType === 'estimate' ? 'Estimate' : 'Invoice'}</button>
                     </div>
                 )}
 
