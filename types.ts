@@ -1,4 +1,5 @@
 
+
 export type TransactionType = 'income' | 'expense';
 
 export interface Transaction {
@@ -22,15 +23,35 @@ export interface InvoiceItem {
   rate: number;
 }
 
+// --- Clients / Leads (Lightweight CRM) ---
+export type ClientStatus = 'lead' | 'client' | 'inactive';
+
+export interface Client {
+  id: string;
+  name: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  notes?: string;
+  status: ClientStatus;
+  createdAt: string; // ISO date
+  updatedAt: string; // ISO date
+}
+
 export interface Invoice {
   id: string;
   number?: string;
+
+  // Link to Client (preferred)
+  clientId?: string;
+
+  // Display fields (kept for backward compatibility + PDF rendering)
   client: string;
-  // Extended Client Info
   clientCompany?: string;
   clientAddress?: string;
   clientEmail?: string;
-  
+
   amount: number; // Total Amount Due (calculated)
   category: string;
   description: string; // Used as summary or fallback
@@ -46,7 +67,7 @@ export interface Invoice {
     frequency: RecurrenceFrequency;
     nextDate: string;
   };
-  
+
   // New Fields
   items?: InvoiceItem[];
   subtotal?: number;
@@ -56,8 +77,6 @@ export interface Invoice {
   poNumber?: string;
 }
 
-
-
 // Estimates (Quotes)
 export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'void';
 
@@ -66,6 +85,11 @@ export type EstimateItem = InvoiceItem;
 export interface Estimate {
   id: string;
   number?: string;
+
+  // Link to Client (preferred)
+  clientId?: string;
+
+  // Display fields
   client: string;
   clientCompany?: string;
   clientAddress?: string;
@@ -80,7 +104,7 @@ export interface Estimate {
   terms?: string;
   status: EstimateStatus;
 
-  // Line items (optional, but recommended)
+  // Line items
   items?: EstimateItem[];
   subtotal?: number;
   discount?: number;
@@ -102,7 +126,7 @@ export interface UserSettings {
   businessPhone?: string;
   businessWebsite?: string;
   businessTaxId?: string;
-  
+
   // Branding
   businessLogo?: string; // Base64 Data URL
   showLogoOnInvoice?: boolean;
@@ -115,7 +139,7 @@ export interface UserSettings {
   taxEstimationMethod: TaxEstimationMethod;
   filingStatus: FilingStatus;
   currencySymbol: string;
-  
+
   // Invoice Defaults
   defaultInvoiceTerms?: string;
   defaultInvoiceNotes?: string;
@@ -160,6 +184,7 @@ export enum Page {
   /** Back-compat: singular invoice page name used in older builds. */
   Invoice = 'invoice',
   Invoices = 'invoices',
+  Clients = 'clients',
   Reports = 'reports',
   Settings = 'settings',
   InvoiceDoc = 'invoice_doc'
