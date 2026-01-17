@@ -56,6 +56,39 @@ export interface Invoice {
   poNumber?: string;
 }
 
+
+
+// Estimates (Quotes)
+export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'void';
+
+export type EstimateItem = InvoiceItem;
+
+export interface Estimate {
+  id: string;
+  number?: string;
+  client: string;
+  clientCompany?: string;
+  clientAddress?: string;
+  clientEmail?: string;
+
+  amount: number; // Total (calculated)
+  category: string;
+  description: string;
+  date: string;
+  validUntil: string;
+  notes?: string;
+  terms?: string;
+  status: EstimateStatus;
+
+  // Line items (optional, but recommended)
+  items?: EstimateItem[];
+  subtotal?: number;
+  discount?: number;
+  taxRate?: number;
+  shipping?: number;
+  poNumber?: string;
+}
+
 export type FilingStatus = 'single' | 'joint' | 'head';
 
 export type TaxEstimationMethod = 'preset' | 'lastYear' | 'custom';
