@@ -76,7 +76,7 @@ import {
   ToggleRight,
   Copy
 } from 'lucide-react';
-import { Page, Transaction, Invoice, UserSettings, Notification, FilterPeriod, RecurrenceFrequency, FilingStatus, TaxPayment, TaxEstimationMethod, InvoiceItem, CustomCategories, Receipt as ReceiptType } from './types';
+import { Page, Transaction, Invoice, Estimate, UserSettings, Notification, FilterPeriod, RecurrenceFrequency, FilingStatus, TaxPayment, TaxEstimationMethod, InvoiceItem, EstimateItem, CustomCategories, Receipt as ReceiptType } from './types';
 import { CATS_IN, CATS_OUT, CATS_BILLING, DEFAULT_PAY_PREFS, DB_KEY, TAX_CONSTANTS, TAX_PLANNER_2026, getFreshDemoData } from './constants';
 import InsightsDashboard from './InsightsDashboard';
 import { getInsightCount } from './services/insightsEngine';
@@ -510,6 +510,7 @@ export default function App() {
   const [currentPage, _setCurrentPage] = useState<Page>(Page.Dashboard);
   const setCurrentPage = (p: any) => _setCurrentPage(normalizePage(p));
   const [invoiceQuickFilter, setInvoiceQuickFilter] = useState<'all' | 'unpaid' | 'overdue'>('all');
+  const [estimateQuickFilter, setEstimateQuickFilter] = useState<'all' | 'draft' | 'sent' | 'accepted' | 'declined'>('all');
 
   const HOME_KPI_PERIOD_KEY = 'moniezi_home_kpi_period';
   type HomeKpiPeriod = 'ytd' | 'mtd' | '30d' | 'all';
@@ -566,6 +567,7 @@ export default function App() {
   }, [currentPage]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [estimates, setEstimates] = useState<Estimate[]>([]);
   const [settings, setSettings] = useState<UserSettings>({
     businessName: "My Business",
     ownerName: "Owner",
@@ -588,7 +590,8 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit_tx' | 'edit_inv' | 'tax_payments' | 'create_cat'>('add');
   const [activeTab, setActiveTab] = useState<'income' | 'expense' | 'billing'>('income');
-  const [activeItem, setActiveItem] = useState<Partial<Transaction> & Partial<Invoice>>({});
+  const [billingDocType, setBillingDocType] = useState<'invoice' | 'estimate'>('invoice');
+  const [activeItem, setActiveItem] = useState<Partial<Transaction> & Partial<Invoice> & Partial<Estimate>>({});
   const [activeTaxPayment, setActiveTaxPayment] = useState<Partial<TaxPayment>>({ type: 'Estimated', date: new Date().toISOString().split('T')[0] });
   
   const [categorySearch, setCategorySearch] = useState('');
@@ -598,6 +601,9 @@ export default function App() {
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'income' | 'expense' | 'invoice'>('all');
   const [lastYearCalc, setLastYearCalc] = useState({ profit: '', tax: '' });
   const [selectedInvoiceForDoc, setSelectedInvoiceForDoc] = useState<Invoice | null>(null);
+  const [selectedEstimateForDoc, setSelectedEstimateForDoc] = useState<Estimate | null>(null);
+  const [isEstimatePdfPreviewOpen, setIsEstimatePdfPreviewOpen] = useState(false);
+  const [isGeneratingEstimatePdf, setIsGeneratingEstimatePdf] = useState(false);
   const [showPLPreview, setShowPLPreview] = useState(false);
   const [plExportRequested, setPlExportRequested] = useState(false);
   const [isGeneratingPLPdf, setIsGeneratingPLPdf] = useState(false);
@@ -821,6 +827,7 @@ export default function App() {
         const parsed = JSON.parse(saved);
         setTransactions(parsed.transactions || []);
         setInvoices(parsed.invoices || []);
+        setEstimates(parsed.estimates || []);
         const defaultMethod: TaxEstimationMethod = parsed.settings?.taxEstimationMethod || 'custom'; 
         setSettings({
             businessName: "My Business",
@@ -855,9 +862,9 @@ export default function App() {
 
   useEffect(() => {
     if (dataLoaded) {
-      localStorage.setItem(DB_KEY, JSON.stringify({ transactions, invoices, settings, taxPayments, customCategories, receipts }));
+      localStorage.setItem(DB_KEY, JSON.stringify({ transactions, invoices, estimates, settings, taxPayments, customCategories, receipts }));
     }
-  }, [transactions, invoices, settings, taxPayments, customCategories, receipts, dataLoaded]);
+  }, [transactions, invoices, estimates, settings, taxPayments, customCategories, receipts, dataLoaded]);
 
   useEffect(() => {
     if (!dataLoaded) return;
@@ -1128,6 +1135,35 @@ export default function App() {
    return { total, paid, unpaid, overdue };
  }, [filteredInvoices]);
 
+  // Estimates (Quotes)
+  const getFilteredEstimates = useCallback(() => {
+    if (filterPeriod === 'all') return estimates;
+    return estimates.filter(e => {
+      const eDate = new Date(e.date);
+      const ref = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+      if (filterPeriod === 'monthly') return eDate.getMonth() === ref.getMonth() && eDate.getFullYear() === ref.getFullYear();
+      if (filterPeriod === 'yearly') return eDate.getFullYear() === ref.getFullYear();
+      return true;
+    });
+  }, [estimates, filterPeriod, referenceDate]);
+
+  const filteredEstimates = useMemo(() => getFilteredEstimates(), [getFilteredEstimates]);
+
+  const displayedEstimates = useMemo(() => {
+    if (estimateQuickFilter === 'all') return filteredEstimates;
+    return filteredEstimates.filter(e => e.status === estimateQuickFilter);
+  }, [filteredEstimates, estimateQuickFilter]);
+
+  const estimateQuickCounts = useMemo(() => {
+    const valid = filteredEstimates.filter(e => e.status !== 'void');
+    const all = valid.length;
+    const draft = valid.filter(e => e.status === 'draft').length;
+    const sent = valid.filter(e => e.status === 'sent').length;
+    const accepted = valid.filter(e => e.status === 'accepted').length;
+    const declined = valid.filter(e => e.status === 'declined').length;
+    return { all, draft, sent, accepted, declined };
+  }, [filteredEstimates]);
+
  const recentCategories = useMemo(() => {
     if (!dataLoaded) return [];
     const sourceData = activeTab === 'billing' ? invoices.map(i => i.category) : transactions.filter(t => t.type === activeTab).map(t => t.category);
@@ -1139,12 +1175,21 @@ export default function App() {
   const resetActiveItem = (type: 'income' | 'expense' | 'billing') => {
     const today = new Date().toISOString().split('T')[0];
     if (type === 'billing') {
-      setActiveItem({ 
-        client: '', amount: 0, category: CATS_BILLING[0], description: '', date: today, due: today, status: 'unpaid',
-        items: [{ id: generateId('item'), description: '', quantity: 1, rate: 0 }],
-        subtotal: 0, discount: 0, taxRate: 0, shipping: 0,
-        notes: settings.defaultInvoiceNotes || '', terms: settings.defaultInvoiceTerms || ''
-      });
+      if (billingDocType === 'estimate') {
+        setActiveItem({
+          client: '', amount: 0, category: CATS_BILLING[0], description: '', date: today, validUntil: today, status: 'draft',
+          items: [{ id: generateId('est_item'), description: '', quantity: 1, rate: 0 }],
+          subtotal: 0, discount: 0, taxRate: 0, shipping: 0,
+          notes: settings.defaultInvoiceNotes || '', terms: settings.defaultInvoiceTerms || ''
+        });
+      } else {
+        setActiveItem({ 
+          client: '', amount: 0, category: CATS_BILLING[0], description: '', date: today, due: today, status: 'unpaid',
+          items: [{ id: generateId('item'), description: '', quantity: 1, rate: 0 }],
+          subtotal: 0, discount: 0, taxRate: 0, shipping: 0,
+          notes: settings.defaultInvoiceNotes || '', terms: settings.defaultInvoiceTerms || ''
+        });
+      }
     } else {
       setActiveItem({ type, date: today, name: '', amount: 0, category: type === 'income' ? CATS_IN[0] : CATS_OUT[0] });
     }
@@ -1174,10 +1219,12 @@ export default function App() {
       // It handles both "Ledger" items (which have a .original property) and raw items (from Recent Activity).
       const rawData = item.original || item;
       
-      // Check for invoice-specific properties (like client) or explicit dataType
-      const isInvoice = item.dataType === 'invoice' || rawData.client !== undefined;
+      // Check for billing doc types (invoice vs estimate)
+      const isEstimate = item.dataType === 'estimate' || rawData.validUntil !== undefined;
+      const isInvoice = item.dataType === 'invoice' || rawData.due !== undefined;
 
-      if (isInvoice) {
+      if (isInvoice || isEstimate) {
+          setBillingDocType(isEstimate ? 'estimate' : 'invoice');
           setActiveItem(rawData); 
           setActiveTab('billing'); 
           setDrawerMode('edit_inv');
@@ -1207,7 +1254,7 @@ export default function App() {
 
   const handleSeedDemoData = () => {
     const demo = getFreshDemoData();
-    setTransactions([...demo.transactions] as Transaction[]); setInvoices([...demo.invoices] as Invoice[]); setSettings({...demo.settings}); setTaxPayments([...(demo.taxPayments || [])] as TaxPayment[]);
+    setTransactions([...demo.transactions] as Transaction[]); setInvoices([...demo.invoices] as Invoice[]); setEstimates([]); setSettings({...demo.settings}); setTaxPayments([...(demo.taxPayments || [])] as TaxPayment[]);
     setSeedSuccess(true); showToast("Demo data loaded successfully!", "success"); setCurrentPage(Page.Dashboard); setTimeout(() => setSeedSuccess(false), 2000);
   };
 
@@ -1215,9 +1262,9 @@ export default function App() {
   
   const performReset = () => {
     try {
-        localStorage.setItem(DB_KEY, JSON.stringify({ transactions: [], invoices: [], settings: { businessName: "My Business", ownerName: "Owner", payPrefs: DEFAULT_PAY_PREFS, taxRate: 25, currencySymbol: '$' }, taxPayments: [], customCategories: { income: [], expense: [], billing: [] }, receipts: [] }));
+        localStorage.setItem(DB_KEY, JSON.stringify({ transactions: [], invoices: [], estimates: [], settings: { businessName: "My Business", ownerName: "Owner", payPrefs: DEFAULT_PAY_PREFS, taxRate: 25, currencySymbol: '$' }, taxPayments: [], customCategories: { income: [], expense: [], billing: [] }, receipts: [] }));
     } catch (e) { console.error("Failed to wipe", e); }
-    setTransactions([]); setInvoices([]); setTaxPayments([]); setReceipts([]); setCustomCategories({ income: [], expense: [], billing: [] }); setSettings({ businessName: "My Business", ownerName: "Owner", payPrefs: DEFAULT_PAY_PREFS, taxRate: 25, stateTaxRate: 0, taxEstimationMethod: 'preset', filingStatus: 'single', currencySymbol: '$' });
+    setTransactions([]); setInvoices([]); setEstimates([]); setTaxPayments([]); setReceipts([]); setCustomCategories({ income: [], expense: [], billing: [] }); setSettings({ businessName: "My Business", ownerName: "Owner", payPrefs: DEFAULT_PAY_PREFS, taxRate: 25, stateTaxRate: 0, taxEstimationMethod: 'preset', filingStatus: 'single', currencySymbol: '$' });
      setSeedSuccess(false); setShowResetConfirm(false); showToast("All data has been wiped.", "success"); setCurrentPage(Page.Dashboard);
   };
 
@@ -1318,6 +1365,106 @@ export default function App() {
       setInvoices(prev => [newInv, ...prev]); showToast("Invoice generated", "success");
     }
     setIsDrawerOpen(false);
+  };
+
+  // Estimates (Quotes)
+  const saveEstimate = (data: Partial<Estimate>) => {
+    if (!data.client?.trim()) return showToast('Please enter a client name', 'error');
+    let totalAmount = 0;
+    let subtotal = 0;
+    if (data.items && data.items.length > 0) {
+        subtotal = data.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+        const taxable = Math.max(0, subtotal - (data.discount || 0));
+        totalAmount = Math.max(0, taxable + (taxable * ((data.taxRate || 0) / 100)) + (data.shipping || 0));
+    } else {
+        totalAmount = Number(data.amount) || 0;
+        subtotal = totalAmount;
+    }
+    if (totalAmount <= 0) return showToast('Please add items or enter a valid amount', 'error');
+    const description = data.description || (data.items && data.items.length > 0 ? data.items[0].description : 'Services / Work');
+
+    if (drawerMode === 'edit_inv' && activeItem.id) {
+      setEstimates(prev => prev.map(e => e.id === activeItem.id ? ({ ...e, ...data, amount: totalAmount, subtotal, description } as Estimate) : e));
+      showToast('Estimate updated', 'success');
+    } else {
+      const newEst: Estimate = {
+        id: generateId('est'),
+        client: data.client!,
+        clientCompany: data.clientCompany,
+        clientAddress: data.clientAddress,
+        clientEmail: data.clientEmail,
+        amount: totalAmount,
+        category: data.category || 'Service',
+        description,
+        date: data.date || new Date().toISOString().split('T')[0],
+        validUntil: data.validUntil || data.date || new Date().toISOString().split('T')[0],
+        status: (data.status as any) || 'draft',
+        notes: data.notes || settings.defaultInvoiceNotes,
+        terms: data.terms || settings.defaultInvoiceTerms,
+        items: data.items,
+        subtotal,
+        discount: data.discount,
+        shipping: data.shipping,
+        taxRate: data.taxRate,
+        poNumber: data.poNumber
+      };
+      setEstimates(prev => [newEst, ...prev]);
+      showToast('Estimate generated', 'success');
+    }
+    setIsDrawerOpen(false);
+  };
+
+  const deleteEstimate = (est: Partial<Estimate>) => {
+    if (!est.id) return;
+    if (confirm('Delete this estimate?')) {
+      setEstimates(prev => prev.filter(e => e.id !== est.id));
+      setIsDrawerOpen(false);
+      showToast('Estimate deleted', 'info');
+    }
+  };
+
+  const duplicateEstimate = (original: Estimate) => {
+    const today = new Date().toISOString().split('T')[0];
+    const daysValid = original.validUntil && original.date ? Math.max(0, Math.round((new Date(original.validUntil).getTime() - new Date(original.date).getTime()) / (1000 * 60 * 60 * 24))) : 30;
+    const valid = new Date();
+    valid.setDate(valid.getDate() + daysValid);
+
+    const duplicated: Partial<Estimate> = {
+      ...original,
+      id: undefined,
+      date: today,
+      validUntil: valid.toISOString().split('T')[0],
+      status: 'draft',
+    };
+
+    setBillingDocType('estimate');
+    setActiveItem(duplicated);
+    setActiveTab('billing');
+    setDrawerMode('add');
+    setIsDrawerOpen(true);
+    showToast('Estimate duplicated - review and save', 'success');
+  };
+
+  const handlePrintEstimate = (est: Partial<Estimate>) => {
+    const estimateToPrint = { ...est } as Estimate;
+    if (!estimateToPrint.items || estimateToPrint.items.length === 0) {
+        estimateToPrint.items = [{ id: 'generated_1', description: est.description || 'Services', quantity: 1, rate: est.amount || 0 }];
+        estimateToPrint.subtotal = est.amount;
+    }
+    setSelectedEstimateForDoc(estimateToPrint);
+    setIsEstimatePdfPreviewOpen(true);
+  };
+
+  const handleDirectExportEstimatePDF = () => {
+    if (!activeItem.id) return;
+    const updatedEstimate = { ...activeItem } as Estimate;
+    if (!updatedEstimate.items || updatedEstimate.items.length === 0) {
+        updatedEstimate.items = [{ id: 'generated_1', description: updatedEstimate.description || 'Services', quantity: 1, rate: updatedEstimate.amount || 0 }];
+        updatedEstimate.subtotal = updatedEstimate.amount;
+    }
+    setEstimates(prev => prev.map(e => e.id === updatedEstimate.id ? updatedEstimate : e));
+    setSelectedEstimateForDoc(updatedEstimate);
+    setIsEstimatePdfPreviewOpen(true);
   };
 
   const duplicateInvoice = (original: Invoice) => {
@@ -1550,6 +1697,38 @@ export default function App() {
      return () => { isMounted = false; };
   }, [isPdfPreviewOpen, selectedInvoiceForDoc]);
 
+  // Auto-generate Estimate PDF when preview opens
+  useEffect(() => {
+     let isMounted = true;
+     const generatePdf = async () => {
+         if (!isEstimatePdfPreviewOpen || !selectedEstimateForDoc || isGeneratingEstimatePdf) return;
+         setIsGeneratingEstimatePdf(true);
+         try {
+             await new Promise(resolve => setTimeout(resolve, 800));
+             if (!isMounted) return;
+             const element = document.getElementById('visible-estimate-pdf-preview-content');
+             if (!element) throw new Error('Preview element not found');
+             const images = Array.from(element.querySelectorAll('img'));
+             await Promise.all(images.map(img => {
+                 // @ts-ignore
+                 if ((img as any).complete) return Promise.resolve();
+                 return new Promise(resolve => {
+                   // @ts-ignore
+                   img.onload = resolve;
+                   // @ts-ignore
+                   img.onerror = resolve;
+                   setTimeout(resolve, 2000);
+                 });
+             }));
+             const opt = { margin: [10, 10, 10, 10], filename: `Estimate_${selectedEstimateForDoc.client.replace(/[^a-z0-9]/gi, '_')}_${selectedEstimateForDoc.date}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', scrollY: 0 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+             await (window as any).html2pdf().set(opt).from(element).save();
+             if (isMounted) { showToast('PDF Downloaded', 'success'); setTimeout(() => setIsEstimatePdfPreviewOpen(false), 1000); }
+         } catch (error) { console.error('Estimate PDF failed:', error); if (isMounted) showToast('Export failed', 'error'); } finally { if (isMounted) setIsGeneratingEstimatePdf(false); }
+     };
+     if (isEstimatePdfPreviewOpen) generatePdf();
+     return () => { isMounted = false; };
+  }, [isEstimatePdfPreviewOpen, selectedEstimateForDoc]);
+
 
   useEffect(() => {
     let isMounted = true;
@@ -1672,13 +1851,14 @@ export default function App() {
   const handleExportBackup = () => {
     const backup = {
         metadata: {
-            appName: "Moniezi Pro",
-            version: "1.0.0",
+            appName: "Moniezi Pro v7",
+            version: "7.0.0",
             timestamp: new Date().toISOString(),
         },
         data: {
             transactions,
             invoices,
+            estimates,
             settings,
             taxPayments,
             customCategories,
@@ -1691,7 +1871,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `moniezi_backup_${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `moniezi_v7_backup_${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1735,6 +1915,7 @@ export default function App() {
         // 1. Prepare safe data objects with defaults to prevent crashes
         const tx = Array.isArray(newData.transactions) ? newData.transactions : [];
         const inv = Array.isArray(newData.invoices) ? newData.invoices : [];
+        const est = Array.isArray(newData.estimates) ? newData.estimates : [];
         const tax = Array.isArray(newData.taxPayments) ? newData.taxPayments : [];
         const rec = Array.isArray(newData.receipts) ? newData.receipts : [];
         const set = { ...settings, ...(newData.settings || {}) };
@@ -1748,6 +1929,7 @@ export default function App() {
         // 2. Update State directly (triggers useEffect to save to LS)
         setTransactions(tx);
         setInvoices(inv);
+        setEstimates(est);
         setTaxPayments(tax);
         setReceipts(rec);
         setSettings(set);
@@ -1980,9 +2162,98 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                 </div>
             </div>
         </div>
+
+      )}
+
+      {isEstimatePdfPreviewOpen && selectedEstimateForDoc && (
+        <div className="fixed inset-0 z-[99999] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="relative w-full max-w-[800px] bg-white text-slate-900 shadow-2xl overflow-y-auto max-h-[90vh] rounded-lg">
+                <div className="sticky top-0 left-0 right-0 bg-white/90 backdrop-blur border-b border-slate-100 p-4 flex justify-between items-center z-50">
+                    <div className="flex items-center gap-2">
+                       {(isGeneratingEstimatePdf) ? <Loader2 className="animate-spin text-blue-600" /> : <Download className="text-emerald-600" />}
+                       <span className="font-bold text-sm uppercase tracking-wider">{(isGeneratingEstimatePdf) ? 'Generating PDF...' : 'Previewing Estimate'}</span>
+                    </div>
+                    <button onClick={() => setIsEstimatePdfPreviewOpen(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={20} /></button>
+                </div>
+                <div id="visible-estimate-pdf-preview-content" className="p-8 md:p-12 bg-white min-h-[1000px]">
+                    {selectedEstimateForDoc.status === 'void' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"><div className="transform -rotate-45 text-red-50 text-[150px] font-extrabold opacity-50 border-8 border-red-50 p-10 rounded-3xl">VOID</div></div>}
+                    <div className={`flex ${settings.showLogoOnInvoice && settings.logoAlignment === 'center' ? 'flex-col items-center text-center' : 'flex-row justify-between items-start'} border-b border-slate-100 pb-8 mb-8 gap-6 z-10 relative`}>
+                        <div className={`flex-1 ${settings.showLogoOnInvoice && settings.logoAlignment === 'center' ? 'w-full' : ''}`}>
+                            {settings.showLogoOnInvoice && settings.businessLogo && <img src={settings.businessLogo} alt="Logo" className={`h-20 w-auto object-contain mb-4 ${settings.logoAlignment === 'center' ? 'mx-auto' : ''}`} />}
+                            <h1 className="text-3xl font-extrabold uppercase tracking-tight text-slate-900 mb-2 font-brand">{settings.businessName}</h1>
+                            <div className="text-sm text-slate-500 font-medium space-y-1">
+                                <p>{settings.ownerName}</p>
+                                {(settings.businessEmail || settings.businessPhone) && <p className={`flex flex-wrap gap-3 ${settings.logoAlignment === 'center' ? 'justify-center' : ''}`}>{settings.businessEmail && <span>{settings.businessEmail}</span>}{settings.businessPhone && <span>• {settings.businessPhone}</span>}</p>}
+                                {settings.businessAddress && <p className="leading-tight pt-1">{settings.businessAddress}</p>}
+                                {settings.businessWebsite && <p className="text-blue-600 pt-1" style={{ color: settings.brandColor }}>{settings.businessWebsite}</p>}
+                            </div>
+                        </div>
+                        <div className={`text-left ${settings.showLogoOnInvoice && settings.logoAlignment === 'center' ? 'w-full mt-6 flex flex-col items-center' : 'text-right flex-1'}`}>
+                            <h2 className="text-5xl font-extrabold tracking-tighter mb-4 font-brand" style={{ color: settings.brandColor || '#e2e8f0' }}>ESTIMATE</h2>
+                            <div className={`space-y-2 ${settings.showLogoOnInvoice && settings.logoAlignment === 'center' ? 'w-full max-w-sm' : ''}`}>
+                                <div className="flex justify-between md:justify-end gap-8"><span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Estimate #</span><span className="text-sm font-bold text-slate-900">{selectedEstimateForDoc.number || selectedEstimateForDoc.id.substring(selectedEstimateForDoc.id.length - 6).toUpperCase()}</span></div>
+                                <div className="flex justify-between md:justify-end gap-8"><span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Date</span><span className="text-sm font-bold text-slate-900">{selectedEstimateForDoc.date}</span></div>
+                                <div className="flex justify-between md:justify-end gap-8"><span className="text-sm font-bold text-slate-400 uppercase tracking-wider">Valid Until</span><span className="text-sm font-bold text-slate-900">{selectedEstimateForDoc.validUntil || ''}</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex gap-10 mb-12 z-10 relative">
+                        <div className="flex-1">
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Estimate For</h3>
+                            <div className="text-lg font-bold text-slate-900">{selectedEstimateForDoc.client}</div>
+                            {selectedEstimateForDoc.clientCompany && <div className="text-base font-semibold text-slate-700 mt-0.5">{selectedEstimateForDoc.clientCompany}</div>}
+                            <div className="text-sm text-slate-500 mt-1 space-y-0.5">{selectedEstimateForDoc.clientEmail && <div>{selectedEstimateForDoc.clientEmail}</div>}{selectedEstimateForDoc.clientAddress && <div className="whitespace-pre-line">{selectedEstimateForDoc.clientAddress}</div>}</div>
+                        </div>
+                        {(selectedEstimateForDoc.poNumber || settings.businessTaxId) && (
+                            <div className="flex-1 text-right">
+                                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Details</h3>
+                                {selectedEstimateForDoc.poNumber && <div className="mb-2"><span className="text-xs font-bold text-slate-500 block">Reference</span><span className="text-sm font-bold text-slate-900">{selectedEstimateForDoc.poNumber}</span></div>}
+                                {settings.businessTaxId && <div><span className="text-xs font-bold text-slate-500 block">Tax ID / VAT</span><span className="text-sm font-bold text-slate-900">{settings.businessTaxId}</span></div>}
+                            </div>
+                        )}
+                    </div>
+                    <div className="mb-8 z-10 relative">
+                        <div className="grid grid-cols-12 gap-4 border-b-2 pb-3 mb-4" style={{ borderColor: settings.brandColor || '#0f172a' }}>
+                            <div className="col-span-6 text-xs font-bold text-slate-900 uppercase tracking-wider">Description</div>
+                            <div className="col-span-2 text-right text-xs font-bold text-slate-900 uppercase tracking-wider">Qty</div>
+                            <div className="col-span-2 text-right text-xs font-bold text-slate-900 uppercase tracking-wider">Rate</div>
+                            <div className="col-span-2 text-right text-xs font-bold text-slate-900 uppercase tracking-wider">Amount</div>
+                        </div>
+                        <div className="space-y-4">
+                            {(selectedEstimateForDoc.items || []).map((item, idx) => (
+                                <div key={item.id || idx} className="border-b border-slate-100 pb-3 grid grid-cols-12 gap-4 items-start">
+                                    <div className="col-span-6"><span className="font-bold text-slate-800 text-sm block">{item.description}</span></div>
+                                    <div className="col-span-2 text-right text-sm font-medium text-slate-600">{item.quantity}</div>
+                                    <div className="col-span-2 text-right text-sm font-medium text-slate-600">{formatCurrency.format(item.rate)}</div>
+                                    <div className="col-span-2 text-right text-sm font-bold text-slate-900">{formatCurrency.format(item.quantity * item.rate)}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex justify-end mt-4 mb-12 z-10 relative">
+                        <div className="w-5/12 space-y-3">
+                            <div className="flex justify-between text-sm"><span className="font-bold text-slate-500">Subtotal</span><span className="font-bold text-slate-900">{formatCurrency.format(selectedEstimateForDoc.subtotal || selectedEstimateForDoc.amount)}</span></div>
+                            {selectedEstimateForDoc.discount ? (<div className="flex justify-between text-sm text-emerald-600"><span className="font-bold">Discount</span><span className="font-bold">-{formatCurrency.format(selectedEstimateForDoc.discount)}</span></div>) : null}
+                            {selectedEstimateForDoc.taxRate ? (<div className="flex justify-between text-sm"><span className="font-bold text-slate-500">Tax ({selectedEstimateForDoc.taxRate}%)</span><span className="font-bold text-slate-900">{formatCurrency.format(((selectedEstimateForDoc.subtotal || 0) - (selectedEstimateForDoc.discount || 0)) * (selectedEstimateForDoc.taxRate / 100))}</span></div>) : null}
+                            {selectedEstimateForDoc.shipping ? (<div className="flex justify-between text-sm"><span className="font-bold text-slate-500">Shipping</span><span className="font-bold text-slate-900">{formatCurrency.format(selectedEstimateForDoc.shipping)}</span></div>) : null}
+                            <div className="h-px bg-slate-900 my-2"></div>
+                            <div className="flex justify-between items-end"><span className="font-extrabold text-lg text-slate-900 uppercase tracking-wider">Total</span><span className="font-extrabold text-2xl text-slate-900">{formatCurrency.format(selectedEstimateForDoc.amount)}</span></div>
+                        </div>
+                    </div>
+                    <div className="mt-auto z-10 relative">
+                        <div className="grid grid-cols-2 gap-8 border-t border-slate-100 pt-8">
+                            <div>{selectedEstimateForDoc.notes && (<><h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Notes</h4><p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{selectedEstimateForDoc.notes}</p></>)}</div>
+                            <div>{(selectedEstimateForDoc.terms || settings.payPrefs.length > 0) && (<><h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Terms</h4>{selectedEstimateForDoc.terms && <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap mb-3">{selectedEstimateForDoc.terms}</p>}{settings.payPrefs.length > 0 && (<div className="text-xs font-bold text-slate-500 bg-slate-50 p-3 rounded inline-block w-full">Accepted Methods: {settings.payPrefs.join(', ')}</div>)}</>)}</div>
+                        </div>
+                        <div className="mt-12 text-center text-xs text-slate-400 font-bold uppercase tracking-widest">Thank you</div>
+                    </div>
+                </div>
+            </div>
+        </div>
       )}
 
       <ToastContainer notifications={notifications} remove={removeToast} />
+
 
       {showResetConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -2385,11 +2656,19 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                 <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
                   <FileText size={24} strokeWidth={1.5} />
                 </div>
-                <h2 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white font-brand">Invoices</h2>
+                <div className="flex flex-col gap-2">
+                  <h2 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white font-brand">{billingDocType === 'estimate' ? 'Estimates' : 'Invoices'}</h2>
+                  <div className="inline-flex w-fit bg-slate-200 dark:bg-slate-900 p-1 rounded-lg">
+                    <button onClick={() => { setBillingDocType('invoice'); setInvoiceQuickFilter('all'); }} className={`px-4 py-2 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${billingDocType === 'invoice' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}>Invoices</button>
+                    <button onClick={() => { setBillingDocType('estimate'); setEstimateQuickFilter('all'); }} className={`px-4 py-2 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${billingDocType === 'estimate' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}>Estimates</button>
+                  </div>
+                </div>
               </div>
               <button onClick={() => handleOpenFAB('billing')} className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-500 transition-all"><Plus size={24} strokeWidth={2.5} /></button>
             </div>
             <PeriodSelector period={filterPeriod} setPeriod={setFilterPeriod} refDate={referenceDate} setRefDate={setReferenceDate} />
+
+            {billingDocType === 'invoice' && (<>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -2468,7 +2747,66 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                   </div>
                 )})
               }
+
             </div>
+            </>
+            )}
+
+            {billingDocType === 'estimate' && (
+              <>
+                <div className="flex gap-2 flex-wrap">
+                  <button type="button" onClick={() => setEstimateQuickFilter('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${estimateQuickFilter === 'all' ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 dark:hover:bg-slate-800'}`}>All ({estimateQuickCounts.all})</button>
+                  <button type="button" onClick={() => setEstimateQuickFilter('draft')} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${estimateQuickFilter === 'draft' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 dark:hover:bg-slate-800'}`}>Draft ({estimateQuickCounts.draft})</button>
+                  <button type="button" onClick={() => setEstimateQuickFilter('sent')} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${estimateQuickFilter === 'sent' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 dark:hover:bg-slate-800'}`}>Sent ({estimateQuickCounts.sent})</button>
+                  <button type="button" onClick={() => setEstimateQuickFilter('accepted')} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${estimateQuickFilter === 'accepted' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 dark:hover:bg-slate-800'}`}>Accepted ({estimateQuickCounts.accepted})</button>
+                  <button type="button" onClick={() => setEstimateQuickFilter('declined')} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${estimateQuickFilter === 'declined' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 dark:hover:bg-slate-800'}`}>Declined ({estimateQuickCounts.declined})</button>
+                </div>
+
+                <div className="space-y-4">
+                  {displayedEstimates.length === 0 ? (
+                    <EmptyState icon={<FileText size={32} />} title="No Estimates Found" subtitle={filterPeriod === 'all' ? "Create professional estimates (quotes) and export to PDF." : "No estimates found for the selected period."} action={() => handleOpenFAB('billing')} actionLabel="Create Estimate" />
+                  ) : (
+                    displayedEstimates
+                      .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .map(est => {
+                        const isExpired = est.validUntil ? new Date(est.validUntil) < new Date() : false;
+                        const statusLabel = est.status === 'accepted' ? 'Accepted' : est.status === 'declined' ? 'Declined' : est.status === 'sent' ? 'Sent' : 'Draft';
+                        const statusClass = est.status === 'accepted' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : est.status === 'declined' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300' : est.status === 'sent' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+                        return (
+                          <div key={est.id} className={`bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 group hover:border-blue-500/30 hover:shadow-lg transition-all shadow-md cursor-pointer ${isExpired && est.status !== 'accepted' ? 'border-l-4 border-l-amber-500' : ''}`} onClick={() => handleEditItem({ dataType: 'estimate', original: est })}>
+                            <div className="flex items-start gap-4 mb-4">
+                              <div className="w-12 h-12 bg-slate-100 dark:bg-blue-500/10 text-slate-600 dark:text-blue-400 rounded-md flex items-center justify-center flex-shrink-0"><FileText size={20} strokeWidth={1.5} /></div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <div className="font-bold text-slate-900 dark:text-white text-lg">{est.client}</div>
+                                </div>
+                                <div className="text-sm font-medium text-slate-600 dark:text-slate-300">{est.description}</div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{est.date}{est.validUntil ? ` • Valid until ${est.validUntil}` : ''}</div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-end justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
+                              <div>
+                                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1 uppercase tracking-wide">Total</label>
+                                <div className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white mb-2">{formatCurrency.format(est.amount)}</div>
+                                <div className="flex flex-col gap-1">
+                                  <div className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider inline-flex items-center gap-1.5 w-fit ${statusClass}`}>{statusLabel}</div>
+                                  {isExpired && est.status !== 'accepted' && <div className="text-xs font-medium text-amber-600 dark:text-amber-400">Expired</div>}
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={(e) => { e.stopPropagation(); handlePrintEstimate(est); }} title="Export PDF" className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-600 hover:text-white transition-all active:scale-95"><Download size={20} strokeWidth={1.5} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setBillingDocType('estimate'); setActiveItem(est); setDrawerMode('edit_inv'); setIsDrawerOpen(true); }} title="Edit Estimate" className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-900 hover:text-white dark:hover:bg-slate-700 transition-all active:scale-95"><Edit3 size={20} strokeWidth={1.5} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); deleteEstimate(est); }} title="Delete Estimate" className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-red-600 hover:text-white transition-all active:scale-95"><Trash2 size={20} strokeWidth={1.5} /></button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -3750,13 +4088,19 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                 {drawerMode === 'edit_inv' && activeItem.id && (
                     <div className="bg-slate-100 dark:bg-slate-800/50 p-2 rounded-lg mb-4 border border-slate-200 dark:border-slate-700">
                         <div className="grid grid-cols-3 gap-2 mb-2">
-                            <button type="button" onClick={handleDirectExportPDF} disabled={isGeneratingPdf} className={`py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-all ${isGeneratingPdf ? 'opacity-70 cursor-wait' : ''}`}>{isGeneratingPdf ? <Loader2 size={18} className="animate-spin text-blue-600" /> : <Download size={18} />}<span className="text-[10px] font-bold uppercase tracking-wider">{isGeneratingPdf ? 'Generating...' : 'Export PDF'}</span></button>
-                            <button type="button" onClick={() => duplicateInvoice(activeItem as Invoice)} className="py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 shadow-sm transition-all"><Copy size={18} /><span className="text-[10px] font-bold uppercase tracking-wider">Duplicate</span></button>
-                            <button type="button" onClick={() => openBatchDuplicate(activeItem as Invoice)} className="py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 shadow-sm transition-all"><Repeat size={18} /><span className="text-[10px] font-bold uppercase tracking-wider">Batch</span></button>
+                            <button type="button" onClick={billingDocType === 'estimate' ? handleDirectExportEstimatePDF : handleDirectExportPDF} disabled={billingDocType === 'estimate' ? isGeneratingEstimatePdf : isGeneratingPdf} className={`py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-all ${(billingDocType === 'estimate' ? isGeneratingEstimatePdf : isGeneratingPdf) ? 'opacity-70 cursor-wait' : ''}`}>{(billingDocType === 'estimate' ? isGeneratingEstimatePdf : isGeneratingPdf) ? <Loader2 size={18} className="animate-spin text-blue-600" /> : <Download size={18} />}<span className="text-[10px] font-bold uppercase tracking-wider">{(billingDocType === 'estimate' ? isGeneratingEstimatePdf : isGeneratingPdf) ? 'Generating...' : 'Export PDF'}</span></button>
+                            <button type="button" onClick={() => (billingDocType === 'estimate' ? duplicateEstimate(activeItem as any) : duplicateInvoice(activeItem as Invoice))} className="py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 shadow-sm transition-all"><Copy size={18} /><span className="text-[10px] font-bold uppercase tracking-wider">Duplicate</span></button>
+                            <button type="button" onClick={() => (billingDocType === 'estimate' ? null : openBatchDuplicate(activeItem as Invoice))} disabled={billingDocType === 'estimate'} className={`py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 shadow-sm transition-all ${billingDocType === 'estimate' ? 'opacity-50 cursor-not-allowed' : ''}`}><Repeat size={18} /><span className="text-[10px] font-bold uppercase tracking-wider">Batch</span></button>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                            <button type="button" onClick={() => toggleInvoicePaidStatus(activeItem)} disabled={activeItem.status === 'void'} className={`py-2.5 flex flex-col items-center justify-center gap-1 rounded-md border shadow-sm transition-all ${activeItem.status === 'void' ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-500' : activeItem.status === 'paid' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-400 hover:bg-orange-100' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100'}`}>{activeItem.status === 'paid' ? <X size={18} /> : <CheckCircle size={18} />}<span className="text-[10px] font-bold uppercase tracking-wider">{activeItem.status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}</span></button>
-                            <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setInvoiceToDelete(activeItem.id!); }} className="py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm transition-all"><Trash2 size={18} /><span className="text-[10px] font-bold uppercase tracking-wider">Delete</span></button>
+                            {billingDocType !== 'estimate' ? (
+                              <button type="button" onClick={() => toggleInvoicePaidStatus(activeItem)} disabled={activeItem.status === 'void'} className={`py-2.5 flex flex-col items-center justify-center gap-1 rounded-md border shadow-sm transition-all ${activeItem.status === 'void' ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-500' : activeItem.status === 'paid' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-400 hover:bg-orange-100' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100'}`}>{activeItem.status === 'paid' ? <X size={18} /> : <CheckCircle size={18} />}<span className="text-[10px] font-bold uppercase tracking-wider">{activeItem.status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}</span></button>
+                            ) : (
+                              <div className="py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-500">
+                                <span className="text-[10px] font-bold uppercase tracking-wider">No payment status</span>
+                              </div>
+                            )}
+                            <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); billingDocType === 'estimate' ? deleteEstimate(activeItem as any) : setInvoiceToDelete(activeItem.id!); }} className="py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm transition-all"><Trash2 size={18} /><span className="text-[10px] font-bold uppercase tracking-wider">Delete</span></button>
                         </div>
                     </div>
                 )}
@@ -3772,7 +4116,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                               <input type="text" value={activeItem.clientAddress || ''} onChange={e => setActiveItem(prev => ({ ...prev, clientAddress: e.target.value }))} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Client Address (Optional)" />
                           </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><DateInput label="Date" value={activeItem.date || ''} onChange={v => setActiveItem(prev => ({ ...prev, date: v }))} /><DateInput label="Due Date" value={activeItem.due || ''} onChange={v => setActiveItem(prev => ({ ...prev, due: v }))} /></div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><DateInput label="Date" value={activeItem.date || ''} onChange={v => setActiveItem(prev => ({ ...prev, date: v }))} /><DateInput label={billingDocType === 'estimate' ? "Valid Until" : "Due Date"} value={(billingDocType === 'estimate' ? (activeItem.validUntil as any) : activeItem.due) || ''} onChange={v => setActiveItem(prev => billingDocType === 'estimate' ? ({ ...prev, validUntil: v }) : ({ ...prev, due: v }))} /></div>
                       <div className="bg-slate-50 dark:bg-slate-900 p-1 rounded-lg border border-slate-100 dark:border-slate-800">
                           <div className="flex items-center justify-between p-3 border-b border-slate-200 dark:border-slate-800"><h4 className="text-xs font-bold text-slate-500 dark:text-slate-300 uppercase tracking-wider">Line Items</h4><button onClick={addInvoiceItem} className="text-xs font-bold text-blue-600 flex items-center gap-1 hover:underline"><PlusCircle size={14}/> Add Item</button></div>
                           <div className="p-2 space-y-2">{(activeItem.items || []).map((item, idx) => (<div key={item.id} className="flex gap-2 items-start animate-in fade-in slide-in-from-left-2"><div className="flex-1 space-y-2"><input type="text" value={item.description} onChange={(e) => updateInvoiceItem(item.id, 'description', e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Description" /><div className="flex gap-2"><div className="relative w-20"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-300 text-xs">Qty</span><input type="number" value={item.quantity || ''} onChange={(e) => updateInvoiceItem(item.id, 'quantity', Number(e.target.value))} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded pl-8 pr-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 text-center" placeholder="0"/></div><div className="relative flex-1"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-300 text-xs">$</span><input type="number" value={item.rate || ''} onChange={(e) => updateInvoiceItem(item.id, 'rate', Number(e.target.value))} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded pl-6 pr-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="0.00" /></div></div></div><div className="pt-2"><button onClick={() => removeInvoiceItem(item.id)} className="text-slate-400 hover:text-red-500 p-1"><MinusCircle size={18} /></button></div></div>))}{(activeItem.items || []).length === 0 && <div className="text-center py-4 text-xs text-slate-400 italic">No items added. Add at least one item.</div>}</div>
@@ -3789,7 +4133,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                           <div><label className="text-xs font-bold text-slate-500 dark:text-slate-300 mb-1 block pl-1 uppercase tracking-wider">Notes / Memo</label><textarea value={activeItem.notes || ''} onChange={e => setActiveItem(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-50 min-h-[60px]" placeholder="Thank you for your business..." /></div>
                           <div><label className="text-xs font-bold text-slate-500 dark:text-slate-300 mb-1 block pl-1 uppercase tracking-wider">Terms</label><textarea value={activeItem.terms || ''} onChange={e => setActiveItem(prev => ({ ...prev, terms: e.target.value }))} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 min-h-[60px]" placeholder="Net 30. Late fees apply..." /></div>
                       </div>
-                      <button onClick={() => saveInvoice(activeItem)} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-500/20 uppercase tracking-widest transition-all active:scale-95">Save Invoice</button>
+                      <button onClick={() => (billingDocType === 'estimate' ? saveEstimate(activeItem) : saveInvoice(activeItem))} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-500/20 uppercase tracking-widest transition-all active:scale-95">Save {billingDocType === 'estimate' ? 'Estimate' : 'Invoice'}</button>
                    </div>
                 ) : (
                    <div className="space-y-4">
@@ -3800,7 +4144,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                               <Copy size={18} />
                               <span className="text-[10px] font-bold uppercase tracking-wider">Duplicate</span>
                             </button>
-                            <button type="button" onClick={() => openBatchDuplicate(activeItem as Transaction)} className="py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 shadow-sm transition-all">
+                            <button type="button" onClick={() => openBatchDuplicate(activeItem as Transaction)} className={`py-2.5 flex flex-col items-center justify-center gap-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 shadow-sm transition-all ${billingDocType === 'estimate' ? 'opacity-50 cursor-not-allowed' : ''}`}>
                               <Repeat size={18} />
                               <span className="text-[10px] font-bold uppercase tracking-wider">Batch</span>
                             </button>
