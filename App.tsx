@@ -1281,8 +1281,22 @@ export default function App() {
     }
   };
 
-  const handleOpenFAB = (type: 'income' | 'expense' | 'billing' = 'income') => {
-    setDrawerMode('add'); setActiveTab(type); resetActiveItem(type); setCategorySearch(''); setIsDrawerOpen(true);
+  const handleOpenFAB = (
+    type: 'income' | 'expense' | 'billing' = 'income',
+    billingType?: 'invoice' | 'estimate'
+  ) => {
+    setDrawerMode('add');
+    setActiveTab(type);
+
+    // When creating a billing document, make sure the drawer opens in the
+    // correct mode (Invoice vs Estimate).
+    if (type === 'billing' && billingType) {
+      setBillingDocType(billingType);
+    }
+
+    resetActiveItem(type);
+    setCategorySearch('');
+    setIsDrawerOpen(true);
   };
 
   const getHeaderFabType = (): 'income' | 'expense' | 'billing' => {
@@ -1340,153 +1354,172 @@ export default function App() {
 
   const handleSeedDemoData = () => {
     const demo = getFreshDemoData();
-
-    // --- Seed realistic demo Clients + Estimates so you can see the full workflow ---
+    // --- Demo Clients + Estimates (V7) ---
+    const toISO = (d: Date) => d.toISOString().split('T')[0];
     const today = new Date();
-    const iso = (d: Date) => d.toISOString().split('T')[0];
-    const addDays = (n: number) => {
-      const d = new Date(today);
-      d.setDate(d.getDate() + n);
-      return d;
-    };
+    const daysAgo = (n: number) => new Date(today.getTime() - n * 24 * 60 * 60 * 1000);
+    const daysFromNow = (n: number) => new Date(today.getTime() + n * 24 * 60 * 60 * 1000);
 
-    // Clients/Leads
-    const c1: Client = { id: generateId('cli'), name: 'Jimmy Wilson', company: 'Wilson Home Services', email: 'jimmy@wilsonhomeservices.com', phone: '(555) 010-1200', address: '12 Oak St, Springfield, USA', notes: 'Repeat customer. Prefers morning appointments.', status: 'client', createdAt: iso(addDays(-40)), updatedAt: iso(addDays(-2)) };
-    const c2: Client = { id: generateId('cli'), name: 'Kenny Barria', company: 'Barria Fitness Co.', email: 'kenny@barriafitness.co', phone: '(555) 010-2300', address: '88 Market Ave, Springfield, USA', notes: 'Interested in monthly plan. Asked for a deposit option.', status: 'lead', createdAt: iso(addDays(-18)), updatedAt: iso(addDays(-5)) };
-    const c3: Client = { id: generateId('cli'), name: 'Sophia Stanley', company: 'Stanley Creative Studio', email: 'sophia@stanleycreative.studio', phone: '(555) 010-3400', address: '221 Pine Rd, Springfield, USA', notes: 'Waiting on decision. Follow up next week.', status: 'lead', createdAt: iso(addDays(-9)), updatedAt: iso(addDays(-1)) };
-    const c4: Client = { id: generateId('cli'), name: 'Rich Richards', company: 'Richards Realty Group', email: 'rich@richardsrealty.group', phone: '(555) 010-4500', address: '5 Central Blvd, Springfield, USA', notes: 'Declined due to budget. Possible later in the year.', status: 'inactive', createdAt: iso(addDays(-90)), updatedAt: iso(addDays(-30)) };
-
-    const demoClients: Client[] = [c1, c2, c3, c4];
-
-    // Estimates (Quotes)
-    const e1: Estimate = {
-      id: generateId('est'),
-      number: 'EST-0007',
-      clientId: c1.id,
-      client: c1.name,
-      clientCompany: c1.company,
-      clientEmail: c1.email,
-      clientAddress: c1.address,
-      category: 'Services',
-      description: 'Home maintenance package (quarterly) — labor + materials',
-      date: iso(addDays(-6)),
-      validUntil: iso(addDays(14)),
-      status: 'accepted',
-      items: [
-        { id: generateId('it'), description: 'Quarterly maintenance visit', quantity: 1, rate: 350 },
-        { id: generateId('it'), description: 'Materials allowance', quantity: 1, rate: 85 },
-      ],
-      subtotal: 435,
-      discount: 25,
-      taxRate: 6,
-      shipping: 0,
-      poNumber: 'PO-1042',
-      terms: 'Payment due within 14 days of invoice date. Thank you!',
-      notes: 'Includes 1 follow-up visit within 30 days if needed.'
-    };
-
-    const e2: Estimate = {
-      id: generateId('est'),
-      number: 'EST-0008',
-      clientId: c2.id,
-      client: c2.name,
-      clientCompany: c2.company,
-      clientEmail: c2.email,
-      clientAddress: c2.address,
-      category: 'Consulting',
-      description: 'Business process setup + monthly optimization',
-      date: iso(addDays(-3)),
-      validUntil: iso(addDays(10)),
-      status: 'sent',
-      items: [
-        { id: generateId('it'), description: 'Setup & onboarding (one-time)', quantity: 1, rate: 500 },
-        { id: generateId('it'), description: 'Monthly optimization (retainer)', quantity: 1, rate: 250 },
-      ],
-      subtotal: 750,
-      discount: 0,
-      taxRate: 0,
-      shipping: 0,
-      terms: 'Optional: 30% deposit to lock the start date.',
-      notes: 'If accepted, we can begin next week.'
-    };
-
-    const e3: Estimate = {
-      id: generateId('est'),
-      number: 'EST-0009',
-      clientId: c3.id,
-      client: c3.name,
-      clientCompany: c3.company,
-      clientEmail: c3.email,
-      clientAddress: c3.address,
-      category: 'Design',
-      description: 'Brand kit + social media templates (starter bundle)',
-      date: iso(addDays(-1)),
-      validUntil: iso(addDays(21)),
-      status: 'draft',
-      items: [
-        { id: generateId('it'), description: 'Brand kit (logo + colors + fonts)', quantity: 1, rate: 650 },
-        { id: generateId('it'), description: 'Social templates pack', quantity: 1, rate: 220 },
-      ],
-      subtotal: 870,
-      discount: 70,
-      taxRate: 0,
-      shipping: 0,
-      notes: 'Draft ready — update scope if client requests extra variations.'
-    };
-
-    const e4: Estimate = {
-      id: generateId('est'),
-      number: 'EST-0010',
-      clientId: c4.id,
-      client: c4.name,
-      clientCompany: c4.company,
-      clientEmail: c4.email,
-      clientAddress: c4.address,
-      category: 'Services',
-      description: 'Property photography + listing package',
-      date: iso(addDays(-25)),
-      validUntil: iso(addDays(-5)),
-      status: 'declined',
-      items: [
-        { id: generateId('it'), description: 'On-site photography', quantity: 1, rate: 300 },
-        { id: generateId('it'), description: 'Listing optimization', quantity: 1, rate: 150 },
-      ],
-      subtotal: 450,
-      discount: 0,
-      taxRate: 0,
-      shipping: 0,
-      notes: 'Client declined this round. Consider follow-up later.'
-    };
-
-    // Calculate totals using the same method used elsewhere (fallback if missing)
-    const calcTotal = (doc: any) => {
-      const subtotal = Number(doc.subtotal ?? 0);
-      const discount = Number(doc.discount ?? 0);
-      const shipping = Number(doc.shipping ?? 0);
-      const taxRate = Number(doc.taxRate ?? 0);
-      const taxable = Math.max(0, subtotal - discount);
-      const tax = taxable * (taxRate / 100);
-      return Math.round((taxable + tax + shipping) * 100) / 100;
-    };
-
-    const demoEstimates: Estimate[] = [
-      { ...e1, amount: calcTotal(e1) },
-      { ...e2, amount: calcTotal(e2) },
-      { ...e3, amount: calcTotal(e3) },
-      { ...e4, amount: calcTotal(e4) },
+    const demoClients: Client[] = [
+      {
+        id: 'cli_demo_1',
+        name: 'Kenny Barria',
+        company: 'KB Landscaping',
+        email: 'kenny@example.com',
+        phone: '+1 (555) 010-2001',
+        address: '12 Palm St, Miami, FL',
+        status: 'lead',
+        createdAt: toISO(daysAgo(45)),
+        updatedAt: toISO(daysAgo(2)),
+      },
+      {
+        id: 'cli_demo_2',
+        name: 'Sophia Stanley',
+        company: 'Stanley Studio',
+        email: 'sophia@example.com',
+        phone: '+1 (555) 010-2002',
+        address: '88 Market Ave, Austin, TX',
+        status: 'lead',
+        createdAt: toISO(daysAgo(30)),
+        updatedAt: toISO(daysAgo(10)),
+      },
+      {
+        id: 'cli_demo_3',
+        name: 'Jimmy Wilson',
+        company: 'Wilson Renovations',
+        email: 'jimmy@example.com',
+        phone: '+1 (555) 010-2003',
+        address: '5 Harbor Rd, San Diego, CA',
+        status: 'client',
+        createdAt: toISO(daysAgo(120)),
+        updatedAt: toISO(daysAgo(1)),
+      },
+      {
+        id: 'cli_demo_4',
+        name: 'Rich Richards',
+        company: 'Richards Consulting',
+        email: 'rich@example.com',
+        phone: '+1 (555) 010-2004',
+        address: '101 King St, New York, NY',
+        status: 'inactive',
+        createdAt: toISO(daysAgo(300)),
+        updatedAt: toISO(daysAgo(90)),
+      },
     ];
 
-    setTransactions([...(demo.transactions as Transaction[])]);
-    setInvoices([...(demo.invoices as Invoice[])]);
+    const demoEstimates: Estimate[] = [
+      {
+        id: 'est_demo_1',
+        number: 'EST-0007',
+        clientId: 'cli_demo_3',
+        client: 'Jimmy Wilson',
+        clientCompany: 'Wilson Renovations',
+        clientEmail: 'jimmy@example.com',
+        clientAddress: '5 Harbor Rd, San Diego, CA',
+        category: 'Service',
+        description: 'Bathroom repair + fixture replacement',
+        date: toISO(daysAgo(5)),
+        validUntil: toISO(daysFromNow(9)),
+        status: 'accepted',
+        items: [
+          { id: 'e1_i1', description: 'Labor (3 hrs)', quantity: 3, rate: 95 },
+          { id: 'e1_i2', description: 'Fixture & materials', quantity: 1, rate: 180 },
+        ],
+        subtotal: 465,
+        discount: 0,
+        taxRate: 8,
+        shipping: 0,
+        amount: Math.round((465 + 465 * 0.08) * 100) / 100,
+        notes: 'Thank you! This estimate is valid for 14 days.',
+        terms: '50% deposit to schedule work. Remaining due upon completion.',
+        poNumber: 'PO-1027',
+      },
+      {
+        id: 'est_demo_2',
+        number: 'EST-0008',
+        clientId: 'cli_demo_1',
+        client: 'Kenny Barria',
+        clientCompany: 'KB Landscaping',
+        clientEmail: 'kenny@example.com',
+        clientAddress: '12 Palm St, Miami, FL',
+        category: 'Service',
+        description: 'Monthly lawn maintenance (4 visits)',
+        date: toISO(daysAgo(2)),
+        validUntil: toISO(daysFromNow(12)),
+        status: 'sent',
+        items: [
+          { id: 'e2_i1', description: 'Lawn mow + edge (per visit)', quantity: 4, rate: 85 },
+          { id: 'e2_i2', description: 'Hedge trim (one time)', quantity: 1, rate: 120 },
+        ],
+        subtotal: 460,
+        discount: 20,
+        taxRate: 0,
+        shipping: 0,
+        amount: 440,
+        notes: 'Includes green waste removal.',
+        terms: 'Net 7 days after acceptance.',
+      },
+      {
+        id: 'est_demo_3',
+        number: 'EST-0009',
+        clientId: 'cli_demo_2',
+        client: 'Sophia Stanley',
+        clientCompany: 'Stanley Studio',
+        clientEmail: 'sophia@example.com',
+        clientAddress: '88 Market Ave, Austin, TX',
+        category: 'Service',
+        description: 'Brand kit design (logo, colors, typography)',
+        date: toISO(daysAgo(15)),
+        validUntil: toISO(daysAgo(1)),
+        status: 'draft',
+        items: [
+          { id: 'e3_i1', description: 'Discovery call + moodboard', quantity: 1, rate: 250 },
+          { id: 'e3_i2', description: 'Logo concepts (3)', quantity: 1, rate: 900 },
+          { id: 'e3_i3', description: 'Final files + brand guide', quantity: 1, rate: 650 },
+        ],
+        subtotal: 1800,
+        discount: 0,
+        taxRate: 0,
+        shipping: 0,
+        amount: 1800,
+        notes: 'Draft estimate (not yet sent).',
+        terms: '50% upfront. Remaining due before final delivery.',
+      },
+      {
+        id: 'est_demo_4',
+        number: 'EST-0010',
+        clientId: 'cli_demo_4',
+        client: 'Rich Richards',
+        clientCompany: 'Richards Consulting',
+        clientEmail: 'rich@example.com',
+        clientAddress: '101 King St, New York, NY',
+        category: 'Service',
+        description: 'Quarterly strategy workshop (1 day)',
+        date: toISO(daysAgo(40)),
+        validUntil: toISO(daysAgo(20)),
+        status: 'declined',
+        items: [
+          { id: 'e4_i1', description: 'On-site workshop', quantity: 1, rate: 2500 },
+          { id: 'e4_i2', description: 'Follow-up report', quantity: 1, rate: 600 },
+        ],
+        subtotal: 3100,
+        discount: 100,
+        taxRate: 0,
+        shipping: 0,
+        amount: 3000,
+        notes: 'Declined — budget shifted this quarter.',
+        terms: 'Net 14 upon acceptance.',
+      },
+    ];
+
+    // Keep original demo data, but add our V7 demo entities
+    setTransactions([...demo.transactions] as Transaction[]);
+    setInvoices([...demo.invoices] as Invoice[]);
     setClients(demoClients);
     setEstimates(demoEstimates);
-    setSettings({ ...(demo.settings as any) });
+    setSettings({ ...demo.settings });
     setTaxPayments([...(demo.taxPayments || [])] as TaxPayment[]);
-
-    setSeedSuccess(true);
-    showToast('Demo data loaded successfully!', 'success');
-    setCurrentPage(Page.Dashboard);
-    setTimeout(() => setSeedSuccess(false), 2000);
+    setSeedSuccess(true); showToast("Demo data loaded successfully!", "success"); setCurrentPage(Page.Dashboard); setTimeout(() => setSeedSuccess(false), 2000);
   };
 
   const handleClearData = () => setShowResetConfirm(true);
@@ -2967,7 +3000,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                   </div>
                 </div>
               </div>
-              <button onClick={() => handleOpenFAB('billing')} className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-500 transition-all"><Plus size={24} strokeWidth={2.5} /></button>
+              <button onClick={() => handleOpenFAB('billing', billingDocType === 'estimate' ? 'estimate' : 'invoice')} className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-500 transition-all"><Plus size={24} strokeWidth={2.5} /></button>
             </div>
             <PeriodSelector period={filterPeriod} setPeriod={setFilterPeriod} refDate={referenceDate} setRefDate={setReferenceDate} />
 
@@ -3004,7 +3037,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                 </div>
              )}
             <div className="space-y-4">
-              {displayedInvoices.length === 0 ? <EmptyState icon={<FileText size={32} />} title="No Invoices Found" subtitle={filterPeriod === 'all' ? "Create professional invoices and track payments effortlessly." : "No invoices found for the selected period."} action={() => handleOpenFAB('billing')} actionLabel="Create Invoice" /> :
+              {displayedInvoices.length === 0 ? <EmptyState icon={<FileText size={32} />} title="No Invoices Found" subtitle={filterPeriod === 'all' ? "Create professional invoices and track payments effortlessly." : "No invoices found for the selected period."} action={() => handleOpenFAB('billing', 'invoice')} actionLabel="Create Invoice" /> :
                 displayedInvoices.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(inv => {
                   const overdueDays = inv.status === 'unpaid' ? getDaysOverdue(inv.due) : 0;
                   const isOverdue = overdueDays > 0;
@@ -3067,7 +3100,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
 
                 <div className="space-y-4">
                   {displayedEstimates.length === 0 ? (
-                    <EmptyState icon={<FileText size={32} />} title="No Estimates Found" subtitle={filterPeriod === 'all' ? "Create professional estimates (quotes) and export to PDF." : "No estimates found for the selected period."} action={() => handleOpenFAB('billing')} actionLabel="Create Estimate" />
+                    <EmptyState icon={<FileText size={32} />} title="No Estimates Found" subtitle={filterPeriod === 'all' ? "Create professional estimates (quotes) and export to PDF." : "No estimates found for the selected period."} action={() => handleOpenFAB('billing', 'estimate')} actionLabel="Create Estimate" />
                   ) : (
                     displayedEstimates
                       .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -4228,55 +4261,6 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
             </div>
           </div>
         )}
-        {/* Fallback: never allow navigation to render a blank screen */}
-        {!([
-          Page.Dashboard,
-          Page.Invoices,
-          Page.Invoice,
-          Page.AllTransactions,
-          Page.Ledger,
-          Page.Income,
-          Page.Expenses,
-          Page.Reports,
-          Page.Settings,
-          Page.InvoiceDoc,
-        ] as Page[]).includes(currentPage) && (
-          <div className="p-6">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">Navigation issue</div>
-              <div className="mt-1 text-sm text-slate-600">
-                We couldn’t open that screen. Tap one of the buttons below to continue.
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setCurrentPage(Page.Dashboard)}
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-                >
-                  Home
-                </button>
-                <button
-                  onClick={() => setCurrentPage(Page.Invoices)}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900"
-                >
-                  Invoices
-                </button>
-                <button
-                  onClick={() => setCurrentPage(Page.AllTransactions)}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900"
-                >
-                  Ledger
-                </button>
-                <button
-                  onClick={() => setCurrentPage(Page.Reports)}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900"
-                >
-                  Reports
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Safety net: never allow navigation to render a blank screen */}
         {!([
           Page.Dashboard,
@@ -4286,6 +4270,7 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
           Page.Ledger,
           Page.Income,
           Page.Expenses,
+          Page.Clients,
           Page.Reports,
           Page.Settings,
           Page.InvoiceDoc,
@@ -4314,6 +4299,12 @@ html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-col
                   className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900"
                 >
                   Ledger
+                </button>
+                <button
+                  onClick={() => setCurrentPage(Page.Clients)}
+                  className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900"
+                >
+                  Clients
                 </button>
                 <button
                   onClick={() => setCurrentPage(Page.Reports)}
