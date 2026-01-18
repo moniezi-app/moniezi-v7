@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1020" />
+
+    <!-- Performance: preconnect to critical CDNs -->
+    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
+    <link rel="preconnect" href="https://esm.sh" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!--
+      iOS "blank white screen" fix:
+      This inline, "critical" CSS + loader renders instantly (before Tailwind/fonts load),
+      so Safari has something visible during the 1–3s boot time.
+    -->
+    <style>
+      html, body { height: 100%; margin: 0; }
+      /* Default (dark) — your <html> starts with class="dark" */
+      body { background: #0b1020; color: #ffffff; }
+
+      /* Light mode (when you remove .dark from <html>) */
+      html:not(.dark) body { background: #dbe7ff; color: #0f172a; }
+
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: inherit;   /* matches light/dark */
+        color: inherit;
+        z-index: 9999;
+      }
+
+      #app-loader .wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        text-align: center;
+        padding: 24px;
+      }
+
+      #app-loader .mark {
+        width: 76px;
+        height: 76px;
+        border-radius: 22px;
+        background: linear-gradient(135deg, #3b82f6, #6366f1);
+        display: grid;
+        place-items: center;
+        box-shadow: 0 18px 50px rgba(0,0,0,.35);
+      }
+
+   #app-loader .mark img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  display: block;
+}
+
+
+      #app-loader .brand {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        font-weight: 800;
+        letter-spacing: 0.38em;
+        font-size: 18px;
+        opacity: 0.95;
+      }
+
+      #app-loader .sub {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.26em;
+        font-size: 11px;
+        opacity: 0.7;
+      }
+
+      #app-loader .hint {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        font-weight: 600;
+        font-size: 12px;
+        opacity: 0.65;
+        margin-top: 6px;
+      }
+    </style>
+
+
+    <!-- Favicons -->
+    <link rel="icon" href="favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+
+    <!-- iOS PWA icon -->
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <title>Moniezi Pro | Modern Financial Management</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Figtree", "sans-serif"],
+              brand: ["Space Grotesk", "sans-serif"],
+            },
+            fontSize: {
+              // Readability upgrade: Bump xs to ~13.6px and sm to ~15.2px for better legibility on mobile
+              xs: ["0.85rem", { lineHeight: "1.25rem" }],
+              sm: ["0.95rem", { lineHeight: "1.4rem" }],
+            },
+            colors: {
+              // Light-mode background (stronger light blue)
+              slatebg: "#dbe7ff",
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300..700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Added html2pdf for mobile-friendly PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+      body {
+        font-family: "Figtree", sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      @media print {
+        .no-print {
+          display: none !important;
+        }
+        .print-only {
+          display: block !important;
+        }
+        body {
+          background-color: white !important;
+          color: black !important;
+        }
+        @page {
+          margin: 0;
+        }
+      }
+      .print-only {
+        display: none;
+      }
+
+      ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      .dark ::-webkit-scrollbar-thumb {
+        background: #1e293b;
+      }
+
+      input[type="date"] {
+        font-family: "Figtree", sans-serif;
+      }
+      .dark input[type="date"] {
+        color-scheme: dark;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus,
+      button:focus {
+        outline: none;
+      }
+
+      /* ---------------------------------------------------------
+         Light-mode readability boost (ONLY affects light mode)
+         Goal: reduce “faded” text on light-blue background.
+         --------------------------------------------------------- */
+
+      /* Darken the most common muted text classes in light mode */
+      html:not(.dark) .text-slate-400 {
+        color: #334155 !important;
+      }
+      html:not(.dark) .text-slate-500 {
+        color: #1f2937 !important;
+      }
+      html:not(.dark) .text-slate-600 {
+        color: #0f172a !important;
+      }
+
+      /* Optional: slightly stronger borders in light mode so cards pop */
+      html:not(.dark) .border-slate-200 {
+        border-color: #cbd5e1 !important;
+      }
+
+      /* Optional weight boost (subtle): makes normal text a touch “sharper” */
+      html:not(.dark) .font-normal {
+        font-weight: 500 !important;
+      }
+      html:not(.dark) .font-medium {
+        font-weight: 600 !important;
+      }
+    </style>
+
+    <!-- Import map (Gemini removed) -->
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@^19.2.3",
+          "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+          "react/": "https://esm.sh/react@^19.2.3/",
+          "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+        }
+      }
+    </script>
+
+    <link rel="stylesheet" href="index.css" />
+  </head>
+
+  <body
+    class="antialiased bg-slatebg dark:bg-slate-950 text-slate-900 dark:text-slate-50 transition-colors duration-300 selection:bg-blue-500/30 selection:text-blue-600 dark:selection:text-blue-200"
+  >
+    <div id="root">
+      <!-- Instant loader (visible on iOS while JS/CSS loads). React replaces this automatically. -->
+      <div id="app-loader" aria-label="Loading Moniezi Pro">
+        <div class="wrap">
+         <div class="mark" aria-hidden="true">
+  <img src="icons/icon-192.png" alt="Moniezi" />
+</div>
+
+          <div class="brand">MONIEZI</div>
+          <div class="sub">PRO FINANCE</div>
+          <div class="hint">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="index.tsx"></script>
+
+    <!-- Service Worker (PWA) -->
+    <script type="module">
+      if (import.meta.env.PROD && "serviceWorker" in navigator) {
+        window.addEventListener("load", async () => {
+          try {
+            await navigator.serviceWorker.register(
+              `${import.meta.env.BASE_URL}service-worker.js`
+            );
+          } catch (e) {
+            // ignore
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
